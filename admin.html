@@ -496,20 +496,19 @@ body {
 
 <script>
 // ─────────────────────────────────────────
-// SHARED DB KEY
+// GAS API
 // ─────────────────────────────────────────
-const DBKEY = 'tc_v3';
+const GAS_URL = 'https://script.google.com/macros/s/AKfycbwZg6bsDIl427TEZ8v7ECY1ZfeADqyJRKZYZgiac3M-5cywdRpZr0qGjuTksgpNjtlD/exec';
 
-function loadDB() {
-  try { return JSON.parse(localStorage.getItem(DBKEY)) || defaultDB(); }
-  catch { return defaultDB(); }
+async function gasCall(data) {
+  const url = GAS_URL + '?payload=' + encodeURIComponent(JSON.stringify(data));
+  const res = await fetch(url, { method: 'GET' });
+  return await res.json();
 }
-function defaultDB() {
-  return { password: 'admin', manager: { last:'', first:'' }, employees: [], records: {}, emailSettings: { addresses: [], senderName: '' } };
-}
-function saveDB() { localStorage.setItem(DBKEY, JSON.stringify(db)); }
 
-let db = loadDB();
+let employees = [];
+let settings = { password: 'admin', manager: { last:'', first:'' }, emailSettings: { addresses:[], senderName:'' } };
+let tsRecords = {};
 let dlMode = '20day';
 
 // ─────────────────────────────────────────
@@ -520,25 +519,38 @@ const DAYS = ['日','月','火','水','木','金','土'];
 
 function updateClock() {
   const now = new Date();
-  const t = `${pad2(now.getHours())}:${pad2(now.getMinutes())}:${pad2(now.getSeconds())}`;
   const el = document.getElementById('adminClock');
-  if (el) el.textContent = t;
+  if (el) el.textContent = `${pad2(now.getHours())}:${pad2(now.getMinutes())}:${pad2(now.getSeconds())}`;
 }
 setInterval(updateClock, 1000);
 updateClock();
 
+function todayKey() {
+  const n = new Date();
+  return `${n.getFullYear()}-${pad2(n.getMonth()+1)}-${pad2(n.getDate())}`;
+}
+function calcHours(a, b) {
+  if (!a || !b) return null;
+  const [ah,am] = a.split(':').map(Number); const [bh,bm] = b.split(':').map(Number);
+  const d = (bh*60+bm)-(ah*60+am); if (d<0) return null;
+  return `${Math.floor(d/60)}時間${d%60}分`;
+}
+
 // ─────────────────────────────────────────
 // LOGIN
 // ─────────────────────────────────────────
-function doLogin() {
-  db = loadDB();
+async function doLogin() {
   const pw = document.getElementById('loginPw').value;
-  if (pw === db.password) {
+  document.getElementById('loginErr').style.display = 'none';
+  try {
+    const res = await gasCall({ action: 'getSettings' });
+    if (res.ok) settings = res.settings;
+  } catch(e) {}
+  if (pw === settings.password) {
     document.getElementById('loginPw').value = '';
-    document.getElementById('loginErr').style.display = 'none';
     document.getElementById('screen-login').classList.remove('active');
     document.getElementById('screen-admin').classList.add('active');
-    initAdmin();
+    await initAdmin();
   } else {
     document.getElementById('loginErr').style.display = 'block';
     document.getElementById('loginPw').value = '';
@@ -553,21 +565,28 @@ function doLogout() {
 // ─────────────────────────────────────────
 // INIT ADMIN
 // ─────────────────────────────────────────
-function initAdmin() {
+async function initAdmin() {
+  try {
+    const [empRes, setRes] = await Promise.all([
+      gasCall({ action: 'getEmployees' }),
+      gasCall({ action: 'getSettings' })
+    ]);
+    if (empRes.ok) employees = empRes.employees || [];
+    if (setRes.ok) settings = setRes.settings;
+  } catch(e) { showToast('データ読み込みに失敗しました', 'err'); }
   renderEmpList();
   renderQR();
   loadMgrForm();
   loadEmailForm();
   initTsSelectors();
-  renderTs();
-  renderEditSelects();
   updateTopMgrName();
+  renderEditSelects();
 }
 
 function updateTopMgrName() {
   const el = document.getElementById('topMgrName');
   if (!el) return;
-  const n = [db.manager?.last, db.manager?.first].filter(Boolean).join(' ');
+  const n = [settings.manager?.last, settings.manager?.first].filter(Boolean).join(' ');
   el.textContent = n ? `${n} さん` : '';
 }
 
@@ -585,33 +604,37 @@ function switchTab(el, id) {
 // MANAGER NAME & PASSWORD
 // ─────────────────────────────────────────
 function loadMgrForm() {
-  document.getElementById('mgrLast').value = db.manager?.last || '';
-  document.getElementById('mgrFirst').value = db.manager?.first || '';
+  document.getElementById('mgrLast').value = settings.manager?.last || '';
+  document.getElementById('mgrFirst').value = settings.manager?.first || '';
 }
 
-function saveMgrName() {
+async function saveMgrName() {
   const last = document.getElementById('mgrLast').value.trim();
   const first = document.getElementById('mgrFirst').value.trim();
   if (!last && !first) { showToast('氏名を入力してください', 'err'); return; }
-  db.manager = { last, first };
-  saveDB();
-  updateTopMgrName();
-  showToast('管理者名を保存しました', 'ok');
+  settings.manager = { last, first };
+  try {
+    await gasCall({ action: 'saveSettings', key: 'manager', value: settings.manager });
+    updateTopMgrName();
+    showToast('管理者名を保存しました', 'ok');
+  } catch(e) { showToast('保存に失敗しました', 'err'); }
 }
 
-function changePw() {
+async function changePw() {
   const cur = document.getElementById('pwCur').value;
   const nw = document.getElementById('pwNew').value;
   const cf = document.getElementById('pwCf').value;
-  if (cur !== db.password) { showToast('現在のパスワードが違います', 'err'); return; }
+  if (cur !== settings.password) { showToast('現在のパスワードが違います', 'err'); return; }
   if (!nw) { showToast('新しいパスワードを入力してください', 'err'); return; }
   if (nw !== cf) { showToast('新しいパスワードが一致しません', 'err'); return; }
-  db.password = nw;
-  saveDB();
-  document.getElementById('pwCur').value = '';
-  document.getElementById('pwNew').value = '';
-  document.getElementById('pwCf').value = '';
-  showToast('パスワードを変更しました', 'ok');
+  try {
+    await gasCall({ action: 'saveSettings', key: 'password', value: nw });
+    settings.password = nw;
+    document.getElementById('pwCur').value = '';
+    document.getElementById('pwNew').value = '';
+    document.getElementById('pwCf').value = '';
+    showToast('パスワードを変更しました', 'ok');
+  } catch(e) { showToast('変更に失敗しました', 'err'); }
 }
 
 // ─────────────────────────────────────────
@@ -619,39 +642,41 @@ function changePw() {
 // ─────────────────────────────────────────
 function genId() { return 'e' + Date.now() + Math.random().toString(36).slice(2,6); }
 
-function addEmployee() {
+async function addEmployee() {
   const last = document.getElementById('newLast').value.trim();
   const first = document.getElementById('newFirst').value.trim();
   const no = document.getElementById('newNo').value.trim();
   if (!last || !first) { showToast('姓・名を両方入力してください', 'err'); return; }
-  db.employees.push({ id: genId(), last, first, no });
-  saveDB();
-  document.getElementById('newLast').value = '';
-  document.getElementById('newFirst').value = '';
-  document.getElementById('newNo').value = '';
-  renderEmpList();
-  renderQR();
-  showToast(`${last} ${first} を追加しました`, 'ok');
+  employees.push({ id: genId(), last, first, no });
+  try {
+    await gasCall({ action: 'saveEmployees', employees });
+    document.getElementById('newLast').value = '';
+    document.getElementById('newFirst').value = '';
+    document.getElementById('newNo').value = '';
+    renderEmpList(); renderQR();
+    showToast(`${last} ${first} を追加しました`, 'ok');
+  } catch(e) { showToast('保存に失敗しました', 'err'); employees.pop(); }
 }
 
-function removeEmployee(id) {
-  const emp = db.employees.find(e => e.id === id);
+async function removeEmployee(id) {
+  const emp = employees.find(e => e.id === id);
   if (!confirm(`「${emp.last} ${emp.first}」を削除しますか？\n※打刻記録も削除されます`)) return;
-  db.employees = db.employees.filter(e => e.id !== id);
-  delete db.records[id];
-  saveDB();
-  renderEmpList(); renderQR();
-  showToast('削除しました');
+  employees = employees.filter(e => e.id !== id);
+  try {
+    await gasCall({ action: 'saveEmployees', employees });
+    renderEmpList(); renderQR();
+    showToast('削除しました');
+  } catch(e) { showToast('削除に失敗しました', 'err'); }
 }
 
 function renderEmpList() {
   const el = document.getElementById('empList');
-  if (db.employees.length === 0) { el.innerHTML = '<div class="empty-msg">まだ登録されていません</div>'; return; }
-  el.innerHTML = db.employees.map(e => `
+  if (employees.length === 0) { el.innerHTML = '<div class="empty-msg">まだ登録されていません</div>'; return; }
+  el.innerHTML = employees.map(e => `
     <div class="emp-item">
       <div>
         <div class="emp-name">${e.last} ${e.first}</div>
-        <div class="emp-id">${e.no ? `社員番号: ${e.no}` : `ID: ${e.id.slice(0,10)}`}</div>
+        <div class="emp-id">${e.no ? '社員番号: ' + e.no : 'ID: ' + e.id.slice(0,10)}</div>
       </div>
       <div class="emp-actions">
         <button class="btn btn-danger btn-sm" onclick="removeEmployee('${e.id}')">削除</button>
@@ -666,26 +691,25 @@ function renderQR() {
   const grid = document.getElementById('qrGrid');
   if (!grid) return;
   grid.innerHTML = '';
-  if (db.employees.length === 0) {
+  if (employees.length === 0) {
     grid.innerHTML = '<div class="empty-msg">従業員を追加するとQRコードが表示されます</div>';
     return;
   }
-  // employee.html のURLを生成（同じフォルダ想定）
   const base = location.href.replace(/admin\.html.*$/, 'employee.html');
-  db.employees.forEach(emp => {
+  employees.forEach(emp => {
     const item = document.createElement('div');
     item.className = 'qr-item';
     const qDiv = document.createElement('div');
-    qDiv.id = `qr-${emp.id}`;
+    qDiv.id = 'qr-' + emp.id;
     const nm = document.createElement('div');
     nm.className = 'qr-item-name';
-    nm.textContent = `${emp.last} ${emp.first}`;
+    nm.textContent = emp.last + ' ' + emp.first;
     item.appendChild(qDiv); item.appendChild(nm);
     grid.appendChild(item);
     setTimeout(() => {
       try {
-        new QRCode(document.getElementById(`qr-${emp.id}`), {
-          text: `${base}?emp=${emp.id}`,
+        new QRCode(document.getElementById('qr-' + emp.id), {
+          text: base + '?emp=' + emp.id,
           width: 128, height: 128,
           colorDark: '#0f1b35', colorLight: '#ffffff'
         });
@@ -698,17 +722,16 @@ function renderQR() {
 // EMAIL SETTINGS
 // ─────────────────────────────────────────
 function loadEmailForm() {
-  document.getElementById('senderName').value = db.emailSettings?.senderName || '';
+  document.getElementById('senderName').value = settings.emailSettings?.senderName || '';
   renderEmailTags();
 }
 
 function renderEmailTags() {
   const area = document.getElementById('emailTagArea');
-  const addrs = db.emailSettings?.addresses || [];
+  const addrs = settings.emailSettings?.addresses || [];
   area.innerHTML = addrs.map((a, i) =>
-    `<span class="email-tag">✉️ ${a}
-      <button class="email-tag-del" onclick="removeEmail(${i})">×</button>
-    </span>`).join('');
+    '<span class="email-tag">✉️ ' + a +
+    ' <button class="email-tag-del" onclick="removeEmail(' + i + ')">×</button></span>').join('');
   const row = document.getElementById('emailAddRow');
   if (row) row.style.display = addrs.length >= 3 ? 'none' : 'flex';
 }
@@ -717,25 +740,26 @@ function addEmail() {
   const input = document.getElementById('newEmailInput');
   const email = input.value.trim();
   if (!email.includes('@')) { showToast('正しいメールアドレスを入力してください', 'err'); return; }
-  if (!db.emailSettings) db.emailSettings = { addresses: [], senderName: '' };
-  if ((db.emailSettings.addresses || []).length >= 3) { showToast('最大3件までです', 'err'); return; }
-  if (db.emailSettings.addresses.includes(email)) { showToast('既に登録されています', 'err'); return; }
-  db.emailSettings.addresses.push(email);
+  if (!settings.emailSettings) settings.emailSettings = { addresses: [], senderName: '' };
+  if ((settings.emailSettings.addresses || []).length >= 3) { showToast('最大3件までです', 'err'); return; }
+  if (settings.emailSettings.addresses.includes(email)) { showToast('既に登録されています', 'err'); return; }
+  settings.emailSettings.addresses.push(email);
   input.value = '';
   renderEmailTags();
-  showToast('追加しました', 'ok');
+  showToast('追加しました（「設定を保存する」を押して確定）');
 }
 
 function removeEmail(i) {
-  db.emailSettings.addresses.splice(i, 1);
+  settings.emailSettings.addresses.splice(i, 1);
   renderEmailTags();
 }
 
-function saveEmailSettings() {
-  if (!db.emailSettings) db.emailSettings = { addresses: [], senderName: '' };
-  db.emailSettings.senderName = document.getElementById('senderName').value.trim();
-  saveDB();
-  showToast('メール設定を保存しました', 'ok');
+async function saveEmailSettings() {
+  settings.emailSettings.senderName = document.getElementById('senderName').value.trim();
+  try {
+    await gasCall({ action: 'saveSettings', key: 'emailSettings', value: settings.emailSettings });
+    showToast('メール設定を保存しました', 'ok');
+  } catch(e) { showToast('保存に失敗しました', 'err'); }
 }
 
 // ─────────────────────────────────────────
@@ -747,7 +771,6 @@ function setDlMode(mode, el) {
   document.getElementById('ctrlRange').style.display = mode === 'range' ? '' : 'none';
   document.querySelectorAll('.mode-pill').forEach(p => p.classList.remove('active'));
   if (el) el.classList.add('active');
-  renderTs();
 }
 
 function initTsSelectors() {
@@ -757,19 +780,19 @@ function initTsSelectors() {
   const now = new Date();
   for (let y = now.getFullYear() - 1; y <= now.getFullYear() + 1; y++) {
     const o = document.createElement('option');
-    o.value = y; o.textContent = `${y}年`;
+    o.value = y; o.textContent = y + '年';
     if (y === now.getFullYear()) o.selected = true;
     ySel.appendChild(o);
   }
   for (let m = 1; m <= 12; m++) {
     const o = document.createElement('option');
-    o.value = m; o.textContent = `${m}月`;
+    o.value = m; o.textContent = m + '月';
     if (m === now.getMonth() + 1) o.selected = true;
     mSel.appendChild(o);
   }
   const s = new Date(now.getFullYear(), now.getMonth() - 1, 21);
-  document.getElementById('rStart').value = `${s.getFullYear()}-${pad2(s.getMonth()+1)}-${pad2(s.getDate())}`;
-  document.getElementById('rEnd').value = `${now.getFullYear()}-${pad2(now.getMonth()+1)}-${pad2(now.getDate())}`;
+  document.getElementById('rStart').value = s.getFullYear() + '-' + pad2(s.getMonth()+1) + '-' + pad2(s.getDate());
+  document.getElementById('rEnd').value = now.getFullYear() + '-' + pad2(now.getMonth()+1) + '-' + pad2(now.getDate());
 }
 
 function getActiveDates() {
@@ -778,58 +801,67 @@ function getActiveDates() {
     const m = parseInt(document.getElementById('tsMonth')?.value);
     if (!y || !m) return [];
     const dates = []; let cur = new Date(y, m-2, 21); const end = new Date(y, m-1, 20);
-    while (cur <= end) { dates.push(`${cur.getFullYear()}-${pad2(cur.getMonth()+1)}-${pad2(cur.getDate())}`); cur.setDate(cur.getDate()+1); }
+    while (cur <= end) { dates.push(cur.getFullYear() + '-' + pad2(cur.getMonth()+1) + '-' + pad2(cur.getDate())); cur.setDate(cur.getDate()+1); }
     return dates;
   } else {
     const s = document.getElementById('rStart')?.value;
     const e = document.getElementById('rEnd')?.value;
     if (!s || !e) return [];
     const dates = []; let cur = new Date(s+'T00:00:00'); const end = new Date(e+'T00:00:00');
-    while (cur <= end) { dates.push(`${cur.getFullYear()}-${pad2(cur.getMonth()+1)}-${pad2(cur.getDate())}`); cur.setDate(cur.getDate()+1); }
+    while (cur <= end) { dates.push(cur.getFullYear() + '-' + pad2(cur.getMonth()+1) + '-' + pad2(cur.getDate())); cur.setDate(cur.getDate()+1); }
     return dates;
   }
 }
 
-function getRec(empId, dk) { return (db.records[empId] && db.records[empId][dk]) || null; }
-function calcHours(a, b) {
-  if (!a || !b) return null;
-  const [ah,am] = a.split(':').map(Number); const [bh,bm] = b.split(':').map(Number);
-  const d = (bh*60+bm)-(ah*60+am); if (d<0) return null;
-  return `${Math.floor(d/60)}時間${d%60}分`;
-}
-
-function renderTs() {
-  db = loadDB();
+async function renderTs() {
   const dates = getActiveDates();
   const thead = document.getElementById('tsHead');
   const tbody = document.getElementById('tsBody');
-  if (!thead || !tbody) return;
-  thead.innerHTML = `<tr><th>日付</th><th>曜</th>${db.employees.map(e=>`<th colspan="3">${e.last} ${e.first}<br><small style="font-weight:400;font-size:10px;">出勤 / 退勤 / 時間</small></th>`).join('')}</tr>`;
+  if (!thead || !tbody || !dates.length) return;
+  thead.innerHTML = '<tr><th>日付</th><th>曜</th>' + employees.map(e => '<th colspan="3">' + e.last + ' ' + e.first + '<br><small style="font-weight:400;font-size:10px;">出勤 / 退勤 / 時間</small></th>').join('') + '</tr>';
+  tbody.innerHTML = '<tr><td colspan="' + (2 + employees.length*3) + '" style="text-align:center; padding:20px; color:var(--text-muted);">読み込み中...</td></tr>';
+  try {
+    const res = await gasCall({ action: 'getRecords', startDate: dates[0], endDate: dates[dates.length-1] });
+    if (res.ok) tsRecords = res.records;
+  } catch(e) { showToast('データ取得に失敗しました', 'err'); }
   tbody.innerHTML = dates.map(dk => {
     const d = new Date(dk+'T00:00:00'); const dow = d.getDay(); const isWE = dow===0||dow===6;
-    const cells = db.employees.map(emp => { const r=getRec(emp.id,dk)||{}; const h=r.in&&r.out?calcHours(r.in,r.out):''; return `<td>${r.in||''}</td><td>${r.out||''}</td><td class="td-hrs">${h}</td>`; }).join('');
-    return `<tr class="${isWE?'row-we':''}"><td>${dk.slice(5)}</td><td>${DAYS[dow]}</td>${cells}</tr>`;
+    const cells = employees.map(emp => {
+      const r = (tsRecords[emp.id] && tsRecords[emp.id][dk]) || {};
+      const h = r.in&&r.out ? calcHours(r.in,r.out) : '';
+      return '<td>' + (r.in||'') + '</td><td>' + (r.out||'') + '</td><td class="td-hrs">' + h + '</td>';
+    }).join('');
+    return '<tr class="' + (isWE?'row-we':'') + '"><td>' + dk.slice(5) + '</td><td>' + DAYS[dow] + '</td>' + cells + '</tr>';
   }).join('');
 }
 
-function dlExcel() {
+async function dlExcel() {
   const dates = getActiveDates();
   if (!dates.length) { showToast('期間を設定してください', 'err'); return; }
+  showToast('データを取得中...');
+  try {
+    const res = await gasCall({ action: 'getRecords', startDate: dates[0], endDate: dates[dates.length-1] });
+    if (res.ok) tsRecords = res.records;
+  } catch(e) { showToast('データ取得に失敗しました', 'err'); return; }
   let label = dlMode === '20day'
-    ? `${document.getElementById('tsYear').value}年${document.getElementById('tsMonth').value}月（20日締め）`
-    : `${document.getElementById('rStart').value}〜${document.getElementById('rEnd').value}`;
+    ? document.getElementById('tsYear').value + '年' + document.getElementById('tsMonth').value + '月（20日締め）'
+    : document.getElementById('rStart').value + '〜' + document.getElementById('rEnd').value;
   let csv = '\uFEFF';
-  csv += `勤怠表,${label}\n`;
-  csv += ['日付','曜日',...db.employees.flatMap(e=>[`${e.last}${e.first}_出勤`,`${e.last}${e.first}_退勤`,`${e.last}${e.first}_勤務時間`])].join(',') + '\n';
+  csv += '勤怠表,' + label + '\n';
+  csv += ['日付','曜日'].concat(employees.flatMap(e => [e.last+e.first+'_出勤', e.last+e.first+'_退勤', e.last+e.first+'_勤務時間'])).join(',') + '\n';
   dates.forEach(dk => {
     const d = new Date(dk+'T00:00:00');
     const row = [dk.slice(5), DAYS[d.getDay()]];
-    db.employees.forEach(emp => { const r=getRec(emp.id,dk)||{}; const h=r.in&&r.out?calcHours(r.in,r.out):''; row.push(r.in||'',r.out||'',h); });
+    employees.forEach(emp => {
+      const r = (tsRecords[emp.id] && tsRecords[emp.id][dk]) || {};
+      const h = r.in&&r.out ? calcHours(r.in,r.out) : '';
+      row.push(r.in||'', r.out||'', h);
+    });
     csv += row.join(',') + '\n';
   });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(new Blob([csv], {type:'text/csv;charset=utf-8;'}));
-  a.download = `勤怠表_${label.replace(/[年月〜（）\s]/g,'_')}.csv`;
+  a.download = '勤怠表_' + label.replace(/[年月〜（）\s]/g,'_') + '.csv';
   a.click();
   showToast('ダウンロードしました', 'ok');
 }
@@ -840,38 +872,43 @@ function dlExcel() {
 function renderEditSelects() {
   const sel = document.getElementById('editEmpSel');
   if (!sel) return;
-  sel.innerHTML = db.employees.map(e => `<option value="${e.id}">${e.last} ${e.first}</option>`).join('');
+  sel.innerHTML = employees.map(e => '<option value="' + e.id + '">' + e.last + ' ' + e.first + '</option>').join('');
   const di = document.getElementById('editDate');
-  if (di && !di.value) { const n=new Date(); di.value=`${n.getFullYear()}-${pad2(n.getMonth()+1)}-${pad2(n.getDate())}`; }
+  if (di && !di.value) { const n=new Date(); di.value=n.getFullYear()+'-'+pad2(n.getMonth()+1)+'-'+pad2(n.getDate()); }
 }
 
-function loadRecord() {
-  db = loadDB();
+async function loadRecord() {
   const empId = document.getElementById('editEmpSel').value;
   const dk = document.getElementById('editDate').value;
-  const r = getRec(empId, dk) || {};
-  document.getElementById('editIn').value = r.in || '';
-  document.getElementById('editOut').value = r.out || '';
-  document.getElementById('editFormCard').style.display = '';
+  try {
+    const res = await gasCall({ action: 'getRecords', startDate: dk, endDate: dk });
+    const r = res.ok && res.records[empId] ? (res.records[empId][dk] || {}) : {};
+    document.getElementById('editIn').value = r.in || '';
+    document.getElementById('editOut').value = r.out || '';
+    document.getElementById('editFormCard').style.display = '';
+  } catch(e) { showToast('記録の取得に失敗しました', 'err'); }
 }
 
-function saveRecord() {
+async function saveRecord() {
   const empId = document.getElementById('editEmpSel').value;
   const dk = document.getElementById('editDate').value;
-  if (!db.records[empId]) db.records[empId] = {};
-  db.records[empId][dk] = { in: document.getElementById('editIn').value || null, out: document.getElementById('editOut').value || null };
-  saveDB();
-  showToast('保存しました', 'ok');
+  const inTime = document.getElementById('editIn').value;
+  const outTime = document.getElementById('editOut').value;
+  try {
+    await gasCall({ action: 'saveRecord', empId, dateKey: dk, inTime, outTime });
+    showToast('保存しました', 'ok');
+  } catch(e) { showToast('保存に失敗しました', 'err'); }
 }
 
-function deleteRecord() {
+async function deleteRecord() {
   if (!confirm('この日の記録を削除しますか？')) return;
   const empId = document.getElementById('editEmpSel').value;
   const dk = document.getElementById('editDate').value;
-  if (db.records[empId]) delete db.records[empId][dk];
-  saveDB();
-  document.getElementById('editFormCard').style.display = 'none';
-  showToast('削除しました');
+  try {
+    await gasCall({ action: 'deleteRecord', empId, dateKey: dk });
+    document.getElementById('editFormCard').style.display = 'none';
+    showToast('削除しました');
+  } catch(e) { showToast('削除に失敗しました', 'err'); }
 }
 
 // ─────────────────────────────────────────
@@ -880,12 +917,12 @@ function deleteRecord() {
 let toastTimer;
 function showToast(msg, type='') {
   const t = document.getElementById('toast');
-  t.textContent = msg; t.className = `toast ${type} show`;
+  t.textContent = msg; t.className = 'toast ' + type + ' show';
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => t.classList.remove('show'), 3000);
 }
 
-window.addEventListener('load', () => { /* login screen shown by default */ });
+window.addEventListener('load', () => { /* ログイン画面が最初に表示される */ });
 </script>
 </body>
 </html>

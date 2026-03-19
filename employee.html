@@ -521,20 +521,23 @@ body::before {
 
 <script>
 // ─────────────────────────────────────────
-// SHARED DB KEY (同じキーを admin.html と共有)
+// GAS API エンドポイント
 // ─────────────────────────────────────────
-const DBKEY = 'tc_v3';
+const GAS_URL = 'https://script.google.com/macros/s/AKfycbwZg6bsDIl427TEZ8v7ECY1ZfeADqyJRKZYZgiac3M-5cywdRpZr0qGjuTksgpNjtlD/exec';
 
-function loadDB() {
-  try { return JSON.parse(localStorage.getItem(DBKEY)) || defaultDB(); }
-  catch { return defaultDB(); }
+async function gasCall(data) {
+  // GASのCORS制限のためJSONPライク（no-cors）ではなくURLパラメータでGETを使う
+  const url = GAS_URL + '?payload=' + encodeURIComponent(JSON.stringify(data));
+  const res = await fetch(url, { method: 'GET' });
+  return await res.json();
 }
-function defaultDB() {
-  return { password: 'admin', manager: { last:'', first:'' }, employees: [], records: {}, emailSettings: { addresses: [], senderName: '' } };
-}
-function saveDB() { localStorage.setItem(DBKEY, JSON.stringify(db)); }
 
-let db = loadDB();
+// ─────────────────────────────────────────
+// 状態管理
+// ─────────────────────────────────────────
+let employees = [];
+let todayRecords = {}; // { empId: { in, out } }
+let settings = { manager: { last:'', first:'' }, emailSettings: { addresses:[], senderName:'' } };
 let currentEmpId = null;
 let editEmpId = null;
 let editDateKey = null;
@@ -555,6 +558,50 @@ function updateClock() {
 setInterval(updateClock, 1000);
 updateClock();
 
+function todayKey() {
+  const n = new Date();
+  return `${n.getFullYear()}-${pad2(n.getMonth()+1)}-${pad2(n.getDate())}`;
+}
+
+function calcHours(a, b) {
+  if (!a || !b) return null;
+  const [ah,am] = a.split(':').map(Number);
+  const [bh,bm] = b.split(':').map(Number);
+  const d = (bh*60+bm)-(ah*60+am);
+  if (d < 0) return null;
+  return `${Math.floor(d/60)}時間${d%60}分`;
+}
+
+// ─────────────────────────────────────────
+// 初期データ読み込み
+// ─────────────────────────────────────────
+async function loadInitialData() {
+  showLoading(true);
+  try {
+    const [empRes, recRes, setRes] = await Promise.all([
+      gasCall({ action: 'getEmployees' }),
+      gasCall({ action: 'getRecords', startDate: todayKey(), endDate: todayKey() }),
+      gasCall({ action: 'getSettings' })
+    ]);
+    if (empRes.ok) employees = empRes.employees || [];
+    if (recRes.ok) {
+      // 今日の記録だけキャッシュ
+      Object.keys(recRes.records).forEach(empId => {
+        todayRecords[empId] = recRes.records[empId][todayKey()] || null;
+      });
+    }
+    if (setRes.ok) settings = setRes.settings;
+  } catch(e) {
+    showToast('データの読み込みに失敗しました', 'err');
+  }
+  showLoading(false);
+}
+
+function showLoading(on) {
+  const list = document.getElementById('nameList');
+  if (on) list.innerHTML = '<div class="empty-note">読み込み中...</div>';
+}
+
 // ─────────────────────────────────────────
 // SCREENS
 // ─────────────────────────────────────────
@@ -563,7 +610,7 @@ function showScreen(name) {
   document.getElementById(`screen-${name}`).classList.add('active');
   const backBtn = document.getElementById('topBackBtn');
   backBtn.style.visibility = name === 'punch' ? 'visible' : 'hidden';
-  if (name === 'select') { db = loadDB(); renderNameList(); }
+  if (name === 'select') renderNameList();
 }
 
 function goBack() { showScreen('select'); }
@@ -573,11 +620,11 @@ function goBack() { showScreen('select'); }
 // ─────────────────────────────────────────
 function renderNameList() {
   const list = document.getElementById('nameList');
-  if (db.employees.length === 0) {
+  if (employees.length === 0) {
     list.innerHTML = '<div class="empty-note">管理者画面で従業員を登録すると<br>ここに名前が表示されます</div>';
     return;
   }
-  list.innerHTML = db.employees.map(e =>
+  list.innerHTML = employees.map(e =>
     `<button class="name-btn" onclick="openPunch('${e.id}')">
       <span>${e.last} ${e.first}</span>
       <span class="arrow">›</span>
@@ -586,45 +633,38 @@ function renderNameList() {
 }
 
 // ─────────────────────────────────────────
-// PUNCH
+// PUNCH SCREEN
 // ─────────────────────────────────────────
-function todayKey() {
-  const n = new Date();
-  return `${n.getFullYear()}-${pad2(n.getMonth()+1)}-${pad2(n.getDate())}`;
-}
-function getRec(empId, dk) { return (db.records[empId] && db.records[empId][dk]) || null; }
-function calcHours(a, b) {
-  if (!a || !b) return null;
-  const mins = (parseInt(b)*60 + parseInt(b.split(':')[1])) - (parseInt(a)*60 + parseInt(a.split(':')[1]));
-  const [ah,am] = a.split(':').map(Number);
-  const [bh,bm] = b.split(':').map(Number);
-  const d = (bh*60+bm)-(ah*60+am);
-  if (d < 0) return null;
-  return `${Math.floor(d/60)}時間${d%60}分`;
-}
-
-function openPunch(empId) {
-  db = loadDB(); // 最新データを取得
-  const emp = db.employees.find(e => e.id === empId);
+async function openPunch(empId) {
+  const emp = employees.find(e => e.id === empId);
   if (!emp) return;
   currentEmpId = empId;
   document.getElementById('punchName').textContent = `${emp.last} ${emp.first}`;
   showScreen('punch');
+  // 今日の記録をスプレッドシートから最新取得
+  try {
+    const res = await gasCall({ action: 'getRecords', startDate: todayKey(), endDate: todayKey() });
+    if (res.ok) {
+      Object.keys(res.records).forEach(id => {
+        todayRecords[id] = res.records[id][todayKey()] || null;
+      });
+    }
+  } catch(e) {}
   renderPunchScreen();
+  await loadHistory(empId);
 }
+
+function getTodayRec(empId) { return todayRecords[empId] || null; }
 
 function renderPunchScreen() {
   if (!currentEmpId) return;
-  const key = todayKey();
-  const rec = getRec(currentEmpId, key);
-
+  const rec = getTodayRec(currentEmpId);
   const inEl = document.getElementById('si-in');
   const outEl = document.getElementById('si-out');
   const hrsEl = document.getElementById('si-hrs');
   const btnIn = document.getElementById('btnIn');
   const btnOut = document.getElementById('btnOut');
 
-  // clear badges
   btnIn.querySelectorAll('.pbtn-done-badge').forEach(e => e.remove());
   btnOut.querySelectorAll('.pbtn-done-badge').forEach(e => e.remove());
 
@@ -638,7 +678,6 @@ function renderPunchScreen() {
     btnIn.disabled = false;
     btnIn.querySelector('.pbtn-sub').textContent = 'タップして記録';
   }
-
   if (rec?.out) {
     outEl.textContent = rec.out; outEl.className = 'today-val tv-out';
     btnOut.disabled = true;
@@ -649,7 +688,6 @@ function renderPunchScreen() {
     btnOut.disabled = false;
     btnOut.querySelector('.pbtn-sub').textContent = 'タップして記録';
   }
-
   if (rec?.in && rec?.out) {
     const h = calcHours(rec.in, rec.out);
     hrsEl.textContent = h || '──';
@@ -657,55 +695,80 @@ function renderPunchScreen() {
   } else {
     hrsEl.textContent = '──'; hrsEl.className = 'today-val tv-empty';
   }
-
-  renderHistory();
 }
 
 async function doPunchIn() {
   if (!currentEmpId) return;
-  const key = todayKey();
-  if (getRec(currentEmpId, key)?.in) { showToast('既に出勤打刻済みです', 'err'); return; }
+  const rec = getTodayRec(currentEmpId);
+  if (rec?.in) { showToast('既に出勤打刻済みです', 'err'); return; }
   const t = `${pad2(new Date().getHours())}:${pad2(new Date().getMinutes())}`;
-  if (!db.records[currentEmpId]) db.records[currentEmpId] = {};
-  if (!db.records[currentEmpId][key]) db.records[currentEmpId][key] = {};
-  db.records[currentEmpId][key].in = t;
-  saveDB();
+  const key = todayKey();
+
+  // 即座にUI更新
+  if (!todayRecords[currentEmpId]) todayRecords[currentEmpId] = {};
+  todayRecords[currentEmpId].in = t;
   showStamp('出勤', t);
   renderPunchScreen();
   showToast(`出勤 ${t} を記録しました`, 'ok');
-  const emp = db.employees.find(e => e.id === currentEmpId);
-  if (emp) sendPunchEmail(emp, key, db.records[currentEmpId][key], 'in');
+
+  // スプレッドシートに保存
+  try {
+    await gasCall({ action: 'punch', empId: currentEmpId, type: 'in', time: t, dateKey: key });
+  } catch(e) { showToast('保存に失敗しました。再度お試しください', 'err'); }
+
+  // メール送信
+  const emp = employees.find(e => e.id === currentEmpId);
+  if (emp) sendPunchEmail(emp, key, todayRecords[currentEmpId], 'in');
+  await loadHistory(currentEmpId);
 }
 
 async function doPunchOut() {
   if (!currentEmpId) return;
-  const key = todayKey();
-  const rec = db.records[currentEmpId]?.[key];
+  const rec = getTodayRec(currentEmpId);
   if (!rec?.in) { showToast('先に出勤打刻をしてください', 'err'); return; }
   if (rec?.out) { showToast('既に退勤打刻済みです', 'err'); return; }
   const t = `${pad2(new Date().getHours())}:${pad2(new Date().getMinutes())}`;
-  db.records[currentEmpId][key].out = t;
-  saveDB();
+  const key = todayKey();
+
+  todayRecords[currentEmpId].out = t;
   showStamp('退勤', t);
   renderPunchScreen();
   showToast(`退勤 ${t} を記録しました`, 'ok');
-  const emp = db.employees.find(e => e.id === currentEmpId);
-  if (emp) sendPunchEmail(emp, key, db.records[currentEmpId][key], 'out');
+
+  try {
+    await gasCall({ action: 'punch', empId: currentEmpId, type: 'out', time: t, dateKey: key });
+  } catch(e) { showToast('保存に失敗しました。再度お試しください', 'err'); }
+
+  const emp = employees.find(e => e.id === currentEmpId);
+  if (emp) sendPunchEmail(emp, key, todayRecords[currentEmpId], 'out');
+  await loadHistory(currentEmpId);
 }
 
 // ─────────────────────────────────────────
-// HISTORY
+// HISTORY（直近7日をGASから取得）
 // ─────────────────────────────────────────
+let historyCache = {};
+
+async function loadHistory(empId) {
+  const now = new Date();
+  const past = new Date(now); past.setDate(past.getDate() - 6);
+  const startDate = `${past.getFullYear()}-${pad2(past.getMonth()+1)}-${pad2(past.getDate())}`;
+  try {
+    const res = await gasCall({ action: 'getRecords', startDate, endDate: todayKey() });
+    if (res.ok) historyCache = res.records[empId] || {};
+  } catch(e) {}
+  renderHistory();
+}
+
 function renderHistory() {
   const container = document.getElementById('recentHist');
-  const empRecs = db.records[currentEmpId] || {};
-  const sorted = Object.keys(empRecs).sort().reverse().slice(0, 7);
+  const sorted = Object.keys(historyCache).sort().reverse().slice(0, 7);
   if (!sorted.length) {
     container.innerHTML = '<div style="color:rgba(255,255,255,0.25); font-size:12px; padding:8px 0;">まだ記録がありません</div>';
     return;
   }
   container.innerHTML = sorted.map(dk => {
-    const r = empRecs[dk];
+    const r = historyCache[dk];
     const h = r.in && r.out ? calcHours(r.in, r.out) : null;
     return `<div class="hist-row">
       <span class="hist-date">${dk.slice(5)}</span>
@@ -725,24 +788,28 @@ function renderHistory() {
 // ─────────────────────────────────────────
 function openEditModal(empId, dk) {
   editEmpId = empId; editDateKey = dk;
-  const r = getRec(empId, dk) || {};
+  const r = historyCache[dk] || {};
   document.getElementById('meIn').value = r.in || '';
   document.getElementById('meOut').value = r.out || '';
   document.getElementById('editModal').classList.add('show');
 }
 function closeModal() { document.getElementById('editModal').classList.remove('show'); }
-function saveEdit() {
+
+async function saveEdit() {
   if (!editEmpId || !editDateKey) return;
   const inT = document.getElementById('meIn').value;
   const outT = document.getElementById('meOut').value;
-  if (!db.records[editEmpId]) db.records[editEmpId] = {};
-  if (!db.records[editEmpId][editDateKey]) db.records[editEmpId][editDateKey] = {};
-  if (inT) db.records[editEmpId][editDateKey].in = inT;
-  if (outT) db.records[editEmpId][editDateKey].out = outT;
-  saveDB();
-  closeModal();
-  renderPunchScreen();
-  showToast('修正しました', 'ok');
+  try {
+    await gasCall({ action: 'saveRecord', empId: editEmpId, dateKey: editDateKey, inTime: inT, outTime: outT });
+    if (editDateKey === todayKey()) {
+      if (!todayRecords[editEmpId]) todayRecords[editEmpId] = {};
+      todayRecords[editEmpId] = { in: inT, out: outT };
+      renderPunchScreen();
+    }
+    closeModal();
+    await loadHistory(editEmpId);
+    showToast('修正しました', 'ok');
+  } catch(e) { showToast('修正に失敗しました', 'err'); }
 }
 
 // ─────────────────────────────────────────
@@ -760,11 +827,11 @@ function showStamp(label, time) {
 // EMAIL (Anthropic API + Gmail MCP)
 // ─────────────────────────────────────────
 async function sendPunchEmail(emp, dateKey, rec, type) {
-  const addrs = db.emailSettings?.addresses || [];
+  const addrs = settings.emailSettings?.addresses || [];
   if (!addrs.length) return;
-  const mgrName = (db.manager?.last || db.manager?.first)
-    ? `${db.manager.last} ${db.manager.first}`.trim() : '管理者';
-  const sender = db.emailSettings?.senderName || '勤怠管理システム';
+  const mgrName = (settings.manager?.last || settings.manager?.first)
+    ? `${settings.manager.last} ${settings.manager.first}`.trim() : '管理者';
+  const sender = settings.emailSettings?.senderName || '勤怠管理システム';
   const fullName = `${emp.last} ${emp.first}`;
   const isIn = type === 'in';
   const labelJP = isIn ? '出勤' : '退勤';
@@ -813,13 +880,15 @@ function showToast(msg, type='') {
 }
 
 // ─────────────────────────────────────────
-// URL PARAM (QRコードからの直接アクセス)
+// 起動
 // ─────────────────────────────────────────
-window.addEventListener('load', () => {
+window.addEventListener('load', async () => {
+  await loadInitialData();
   renderNameList();
+  // QRコードからの直接アクセス
   const p = new URLSearchParams(location.search);
   const empId = p.get('emp');
-  if (empId && db.employees.find(e => e.id === empId)) openPunch(empId);
+  if (empId && employees.find(e => e.id === empId)) openPunch(empId);
 });
 </script>
 </body>
