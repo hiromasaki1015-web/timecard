@@ -1,0 +1,826 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>打刻 - 勤怠管理</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@300;400;500;700;900&family=Shippori+Mincho:wght@400;600;700&family=JetBrains+Mono:wght@400;700&display=swap');
+
+:root {
+  --bg: #0d1f3c;
+  --bg2: #112244;
+  --surface: #1a3060;
+  --card: #ffffff;
+  --accent-in: #17a854;
+  --accent-in2: #128a43;
+  --accent-out: #d63031;
+  --accent-out2: #b02020;
+  --gold: #f0b429;
+  --sky: #5aaaff;
+  --text: #1a2540;
+  --text-inv: rgba(255,255,255,0.92);
+  --text-soft: rgba(255,255,255,0.55);
+  --line: #d0daea;
+  --muted: #8a9bb8;
+  --shadow: 0 8px 32px rgba(0,0,0,0.25);
+  --radius: 16px;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: 'Noto Sans JP', sans-serif;
+  background: var(--bg);
+  min-height: 100vh;
+  color: var(--text-inv);
+  overflow-x: hidden;
+}
+
+/* background pattern */
+body::before {
+  content: '';
+  position: fixed; inset: 0;
+  background:
+    radial-gradient(ellipse 80% 50% at 20% -10%, rgba(90,170,255,0.12) 0%, transparent 60%),
+    radial-gradient(ellipse 60% 40% at 80% 110%, rgba(23,168,84,0.08) 0%, transparent 60%);
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* ── SCREENS ── */
+.screen { display: none; min-height: 100vh; position: relative; z-index: 1; flex-direction: column; }
+.screen.active { display: flex; }
+
+/* ── TOPBAR ── */
+.topbar {
+  height: 56px;
+  padding: 0 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: rgba(13,31,60,0.8);
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+  flex-shrink: 0;
+}
+.topbar-logo {
+  font-family: 'Shippori Mincho', serif;
+  font-size: 14px;
+  letter-spacing: 4px;
+  color: var(--text-inv);
+  opacity: 0.9;
+}
+.topbar-clock {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 14px;
+  color: var(--gold);
+  font-weight: 700;
+}
+.back-link {
+  font-size: 12px;
+  color: var(--text-soft);
+  cursor: pointer;
+  background: none;
+  border: none;
+  font-family: 'Noto Sans JP', sans-serif;
+  transition: color 0.2s;
+  padding: 0;
+}
+.back-link:hover { color: var(--text-inv); }
+
+/* ── SELECT SCREEN ── */
+#screen-select {
+  align-items: center;
+  justify-content: center;
+  padding: 40px 20px;
+}
+.select-wrap {
+  width: 100%;
+  max-width: 420px;
+}
+.select-heading {
+  text-align: center;
+  margin-bottom: 32px;
+}
+.select-heading .title {
+  font-family: 'Shippori Mincho', serif;
+  font-size: 26px;
+  font-weight: 700;
+  letter-spacing: 5px;
+  margin-bottom: 6px;
+}
+.select-heading .sub {
+  font-size: 12px;
+  color: var(--text-soft);
+  letter-spacing: 2px;
+}
+.name-list { display: flex; flex-direction: column; gap: 10px; }
+.name-btn {
+  width: 100%;
+  background: rgba(255,255,255,0.07);
+  border: 1px solid rgba(255,255,255,0.14);
+  border-radius: 12px;
+  padding: 18px 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+  transition: all 0.2s;
+  color: var(--text-inv);
+  font-family: 'Noto Sans JP', sans-serif;
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: 3px;
+  backdrop-filter: blur(8px);
+}
+.name-btn:hover {
+  background: rgba(255,255,255,0.13);
+  border-color: rgba(255,255,255,0.25);
+  transform: translateX(4px);
+}
+.name-btn .arrow { font-size: 18px; opacity: 0.45; }
+.empty-note { text-align: center; color: var(--text-soft); font-size: 13px; padding: 40px 0; line-height: 2; }
+
+/* ── PUNCH SCREEN ── */
+#screen-punch { }
+
+.punch-hero {
+  background: linear-gradient(180deg, var(--bg2) 0%, rgba(17,34,68,0.6) 100%);
+  padding: 28px 24px 24px;
+  text-align: center;
+  flex-shrink: 0;
+  border-bottom: 1px solid rgba(255,255,255,0.07);
+}
+.punch-name {
+  font-family: 'Shippori Mincho', serif;
+  font-size: 30px;
+  font-weight: 700;
+  letter-spacing: 6px;
+  margin-bottom: 8px;
+}
+.punch-dt {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  color: var(--text-soft);
+  letter-spacing: 1px;
+}
+
+.punch-body {
+  flex: 1;
+  padding: 20px;
+  max-width: 480px;
+  margin: 0 auto;
+  width: 100%;
+}
+
+/* today status */
+.today-card {
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: var(--radius);
+  padding: 18px 20px;
+  margin-bottom: 16px;
+  backdrop-filter: blur(8px);
+}
+.today-card-title {
+  font-size: 10px;
+  letter-spacing: 3px;
+  color: var(--text-soft);
+  margin-bottom: 14px;
+  font-weight: 600;
+}
+.today-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 9px 0;
+  border-bottom: 1px solid rgba(255,255,255,0.07);
+}
+.today-row:last-child { border-bottom: none; }
+.today-label { font-size: 13px; color: var(--text-soft); display: flex; align-items: center; gap: 7px; }
+.today-val {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 18px;
+  font-weight: 700;
+}
+.tv-empty { color: rgba(255,255,255,0.2); font-size: 13px; font-family: 'Noto Sans JP', sans-serif; }
+.tv-in { color: #4ade80; }
+.tv-out { color: #f87171; }
+.tv-hrs { color: var(--sky); }
+
+/* punch buttons */
+.punch-btns {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.pbtn {
+  padding: 32px 12px 24px;
+  border: none;
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: all 0.15s;
+  font-family: 'Noto Sans JP', sans-serif;
+  position: relative;
+  overflow: hidden;
+}
+.pbtn:active { transform: scale(0.96); }
+.pbtn:disabled { opacity: 0.3; cursor: not-allowed; transform: none; }
+
+.pbtn-in {
+  background: var(--accent-in);
+  box-shadow: 0 8px 28px rgba(23,168,84,0.4);
+}
+.pbtn-in:hover:not(:disabled) { background: var(--accent-in2); box-shadow: 0 10px 32px rgba(23,168,84,0.5); }
+.pbtn-out {
+  background: var(--accent-out);
+  box-shadow: 0 8px 28px rgba(214,48,49,0.4);
+}
+.pbtn-out:hover:not(:disabled) { background: var(--accent-out2); box-shadow: 0 10px 32px rgba(214,48,49,0.5); }
+
+.pbtn-label {
+  display: block;
+  font-size: 26px;
+  font-weight: 900;
+  letter-spacing: 5px;
+  color: white;
+  margin-bottom: 8px;
+}
+.pbtn-sub {
+  display: block;
+  font-size: 10px;
+  color: rgba(255,255,255,0.65);
+  letter-spacing: 1px;
+}
+.pbtn-done-badge {
+  position: absolute;
+  top: 10px; right: 10px;
+  background: rgba(0,0,0,0.25);
+  color: white;
+  font-size: 10px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  letter-spacing: 1px;
+}
+
+/* history */
+.hist-card {
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.09);
+  border-radius: var(--radius);
+  padding: 16px 18px;
+  backdrop-filter: blur(8px);
+}
+.hist-title { font-size: 10px; letter-spacing: 3px; color: var(--text-soft); margin-bottom: 12px; font-weight: 600; }
+.hist-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 0;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+  gap: 8px;
+}
+.hist-row:last-child { border-bottom: none; }
+.hist-date { font-size: 12px; color: var(--text-soft); white-space: nowrap; flex-shrink: 0; font-family: 'JetBrains Mono', monospace; }
+.hist-times { display: flex; gap: 8px; align-items: center; font-family: 'JetBrains Mono', monospace; font-size: 12px; }
+.ht-in { color: #4ade80; }
+.ht-sep { color: rgba(255,255,255,0.2); }
+.ht-out { color: #f87171; }
+.ht-hrs { color: var(--sky); font-size: 11px; }
+.edit-btn {
+  background: rgba(255,255,255,0.08);
+  border: 1px solid rgba(255,255,255,0.14);
+  color: rgba(255,255,255,0.6);
+  padding: 3px 10px;
+  border-radius: 6px;
+  font-size: 11px;
+  cursor: pointer;
+  font-family: 'Noto Sans JP', sans-serif;
+  transition: all 0.2s;
+  flex-shrink: 0;
+}
+.edit-btn:hover { background: rgba(255,255,255,0.14); color: white; }
+
+/* ── STAMP ── */
+.stamp-overlay {
+  position: fixed; inset: 0;
+  background: rgba(13,31,60,0.82);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 9999;
+  opacity: 0; pointer-events: none;
+  transition: opacity 0.25s;
+}
+.stamp-overlay.show { opacity: 1; pointer-events: all; }
+.stamp-inner {
+  text-align: center;
+  transform: scale(0) rotate(-12deg);
+  transition: transform 0.32s cubic-bezier(0.34,1.56,0.64,1);
+}
+.stamp-overlay.show .stamp-inner { transform: scale(1) rotate(-12deg); }
+.stamp-box {
+  display: inline-block;
+  border: 7px solid #e53e3e;
+  border-radius: 10px;
+  padding: 16px 40px;
+}
+.stamp-kanji {
+  font-family: 'Shippori Mincho', serif;
+  font-size: 64px;
+  font-weight: 700;
+  color: #e53e3e;
+  letter-spacing: 8px;
+  display: block;
+}
+.stamp-time-lbl {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 20px;
+  color: #e53e3e;
+  opacity: 0.85;
+  margin-top: 6px;
+}
+
+/* ── MODAL ── */
+.modal-bg {
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,0.65);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 500;
+  opacity: 0; pointer-events: none;
+  transition: opacity 0.2s;
+}
+.modal-bg.show { opacity: 1; pointer-events: all; }
+.modal {
+  background: white;
+  border-radius: 18px;
+  padding: 28px;
+  width: 90%; max-width: 340px;
+  transform: translateY(16px);
+  transition: transform 0.2s;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.4);
+}
+.modal-bg.show .modal { transform: translateY(0); }
+.modal h3 { font-size: 15px; font-weight: 700; margin-bottom: 18px; color: #1a2540; letter-spacing: 1px; }
+.mf-label { display: block; font-size: 11px; letter-spacing: 2px; color: #6b7a9a; margin-bottom: 5px; font-weight: 600; }
+.mf-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 16px; }
+.mf-input {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1.5px solid #d0daea;
+  border-radius: 8px;
+  font-size: 15px;
+  font-family: 'Noto Sans JP', sans-serif;
+  color: #1a2540;
+  background: #f6f8fc;
+}
+.mf-input:focus { outline: none; border-color: #5aaaff; }
+.modal-btns { display: flex; gap: 10px; }
+.mbtn {
+  flex: 1; padding: 11px;
+  border: none; border-radius: 8px;
+  font-size: 13px; font-family: 'Noto Sans JP', sans-serif;
+  font-weight: 700; cursor: pointer; letter-spacing: 1px;
+  transition: all 0.2s;
+}
+.mbtn-cancel { background: #f0f3f8; color: #6b7a9a; }
+.mbtn-save { background: #0f1b35; color: white; }
+.mbtn-save:hover { background: #1a2d52; }
+
+/* ── TOAST ── */
+.toast {
+  position: fixed;
+  bottom: 28px; left: 50%;
+  transform: translateX(-50%) translateY(80px);
+  background: rgba(26,48,96,0.95);
+  color: white;
+  padding: 12px 26px;
+  border-radius: 28px;
+  font-size: 13px;
+  z-index: 10000;
+  transition: transform 0.3s;
+  white-space: nowrap;
+  box-shadow: 0 8px 28px rgba(0,0,0,0.35);
+  pointer-events: none;
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(255,255,255,0.12);
+}
+.toast.show { transform: translateX(-50%) translateY(0); }
+.toast.ok { background: rgba(23,130,60,0.95); }
+.toast.err { background: rgba(180,40,40,0.95); }
+
+@media (max-width: 400px) {
+  .punch-btns { grid-template-columns: 1fr; }
+}
+</style>
+</head>
+<body>
+
+<!-- TOPBAR (shared) -->
+<div class="topbar" style="position:fixed; top:0; width:100%; z-index:200;">
+  <div class="topbar-logo">勤怠打刻</div>
+  <div class="topbar-clock" id="topClock">--:--:--</div>
+  <button class="back-link" id="topBackBtn" onclick="goBack()" style="visibility:hidden;">← 名前選択</button>
+</div>
+
+<!-- padding for fixed topbar -->
+<div style="height:56px;"></div>
+
+<!-- ======================================================= -->
+<!-- SCREEN: SELECT NAME -->
+<!-- ======================================================= -->
+<div class="screen active" id="screen-select">
+  <div class="select-wrap">
+    <div class="select-heading">
+      <div class="title">打刻する方を選択</div>
+      <div class="sub">お名前をタップしてください</div>
+    </div>
+    <div class="name-list" id="nameList">
+      <div class="empty-note">管理者画面で従業員を登録すると<br>ここに名前が表示されます</div>
+    </div>
+  </div>
+</div>
+
+<!-- ======================================================= -->
+<!-- SCREEN: PUNCH -->
+<!-- ======================================================= -->
+<div class="screen" id="screen-punch">
+  <div class="punch-hero">
+    <div class="punch-name" id="punchName">──</div>
+    <div class="punch-dt" id="punchDt">----/--/-- --:--:--</div>
+  </div>
+  <div class="punch-body">
+
+    <div class="today-card">
+      <div class="today-card-title">本日の記録</div>
+      <div class="today-row">
+        <span class="today-label"><span>🟢</span> 出勤時刻</span>
+        <span class="today-val tv-empty" id="si-in">未打刻</span>
+      </div>
+      <div class="today-row">
+        <span class="today-label"><span>🔴</span> 退勤時刻</span>
+        <span class="today-val tv-empty" id="si-out">未打刻</span>
+      </div>
+      <div class="today-row">
+        <span class="today-label"><span>⏱</span> 勤務時間</span>
+        <span class="today-val tv-empty" id="si-hrs">──</span>
+      </div>
+    </div>
+
+    <div class="punch-btns">
+      <button class="pbtn pbtn-in" id="btnIn" onclick="doPunchIn()">
+        <span class="pbtn-label">出勤</span>
+        <span class="pbtn-sub">タップして記録</span>
+      </button>
+      <button class="pbtn pbtn-out" id="btnOut" onclick="doPunchOut()">
+        <span class="pbtn-label">退勤</span>
+        <span class="pbtn-sub">タップして記録</span>
+      </button>
+    </div>
+
+    <div class="hist-card">
+      <div class="hist-title">最近の記録（直近7日）</div>
+      <div id="recentHist"><div style="color:rgba(255,255,255,0.25); font-size:12px; padding:8px 0;">まだ記録がありません</div></div>
+    </div>
+  </div>
+</div>
+
+<!-- STAMP -->
+<div class="stamp-overlay" id="stampOverlay">
+  <div class="stamp-inner">
+    <div class="stamp-box">
+      <span class="stamp-kanji" id="stampLabel">出勤</span>
+      <div class="stamp-time-lbl" id="stampTime"></div>
+    </div>
+  </div>
+</div>
+
+<!-- EDIT MODAL -->
+<div class="modal-bg" id="editModal">
+  <div class="modal">
+    <h3>打刻を修正</h3>
+    <div class="mf-row">
+      <div>
+        <label class="mf-label">出勤時刻</label>
+        <input type="time" class="mf-input" id="meIn">
+      </div>
+      <div>
+        <label class="mf-label">退勤時刻</label>
+        <input type="time" class="mf-input" id="meOut">
+      </div>
+    </div>
+    <div class="modal-btns">
+      <button class="mbtn mbtn-cancel" onclick="closeModal()">キャンセル</button>
+      <button class="mbtn mbtn-save" onclick="saveEdit()">保存する</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+// ─────────────────────────────────────────
+// SHARED DB KEY (同じキーを admin.html と共有)
+// ─────────────────────────────────────────
+const DBKEY = 'tc_v3';
+
+function loadDB() {
+  try { return JSON.parse(localStorage.getItem(DBKEY)) || defaultDB(); }
+  catch { return defaultDB(); }
+}
+function defaultDB() {
+  return { password: 'admin', manager: { last:'', first:'' }, employees: [], records: {}, emailSettings: { addresses: [], senderName: '' } };
+}
+function saveDB() { localStorage.setItem(DBKEY, JSON.stringify(db)); }
+
+let db = loadDB();
+let currentEmpId = null;
+let editEmpId = null;
+let editDateKey = null;
+
+// ─────────────────────────────────────────
+// CLOCK
+// ─────────────────────────────────────────
+const pad2 = n => String(n).padStart(2,'0');
+const DAYS = ['日','月','火','水','木','金','土'];
+
+function updateClock() {
+  const now = new Date();
+  const t = `${pad2(now.getHours())}:${pad2(now.getMinutes())}:${pad2(now.getSeconds())}`;
+  document.getElementById('topClock').textContent = t;
+  const dt = document.getElementById('punchDt');
+  if (dt) dt.textContent = `${now.getFullYear()}/${pad2(now.getMonth()+1)}/${pad2(now.getDate())}（${DAYS[now.getDay()]}）${t}`;
+}
+setInterval(updateClock, 1000);
+updateClock();
+
+// ─────────────────────────────────────────
+// SCREENS
+// ─────────────────────────────────────────
+function showScreen(name) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  document.getElementById(`screen-${name}`).classList.add('active');
+  const backBtn = document.getElementById('topBackBtn');
+  backBtn.style.visibility = name === 'punch' ? 'visible' : 'hidden';
+  if (name === 'select') { db = loadDB(); renderNameList(); }
+}
+
+function goBack() { showScreen('select'); }
+
+// ─────────────────────────────────────────
+// NAME LIST
+// ─────────────────────────────────────────
+function renderNameList() {
+  const list = document.getElementById('nameList');
+  if (db.employees.length === 0) {
+    list.innerHTML = '<div class="empty-note">管理者画面で従業員を登録すると<br>ここに名前が表示されます</div>';
+    return;
+  }
+  list.innerHTML = db.employees.map(e =>
+    `<button class="name-btn" onclick="openPunch('${e.id}')">
+      <span>${e.last} ${e.first}</span>
+      <span class="arrow">›</span>
+    </button>`
+  ).join('');
+}
+
+// ─────────────────────────────────────────
+// PUNCH
+// ─────────────────────────────────────────
+function todayKey() {
+  const n = new Date();
+  return `${n.getFullYear()}-${pad2(n.getMonth()+1)}-${pad2(n.getDate())}`;
+}
+function getRec(empId, dk) { return (db.records[empId] && db.records[empId][dk]) || null; }
+function calcHours(a, b) {
+  if (!a || !b) return null;
+  const mins = (parseInt(b)*60 + parseInt(b.split(':')[1])) - (parseInt(a)*60 + parseInt(a.split(':')[1]));
+  const [ah,am] = a.split(':').map(Number);
+  const [bh,bm] = b.split(':').map(Number);
+  const d = (bh*60+bm)-(ah*60+am);
+  if (d < 0) return null;
+  return `${Math.floor(d/60)}時間${d%60}分`;
+}
+
+function openPunch(empId) {
+  db = loadDB(); // 最新データを取得
+  const emp = db.employees.find(e => e.id === empId);
+  if (!emp) return;
+  currentEmpId = empId;
+  document.getElementById('punchName').textContent = `${emp.last} ${emp.first}`;
+  showScreen('punch');
+  renderPunchScreen();
+}
+
+function renderPunchScreen() {
+  if (!currentEmpId) return;
+  const key = todayKey();
+  const rec = getRec(currentEmpId, key);
+
+  const inEl = document.getElementById('si-in');
+  const outEl = document.getElementById('si-out');
+  const hrsEl = document.getElementById('si-hrs');
+  const btnIn = document.getElementById('btnIn');
+  const btnOut = document.getElementById('btnOut');
+
+  // clear badges
+  btnIn.querySelectorAll('.pbtn-done-badge').forEach(e => e.remove());
+  btnOut.querySelectorAll('.pbtn-done-badge').forEach(e => e.remove());
+
+  if (rec?.in) {
+    inEl.textContent = rec.in; inEl.className = 'today-val tv-in';
+    btnIn.disabled = true;
+    btnIn.querySelector('.pbtn-sub').textContent = '打刻済み';
+    const b = document.createElement('span'); b.className = 'pbtn-done-badge'; b.textContent = '✓ 済'; btnIn.appendChild(b);
+  } else {
+    inEl.textContent = '未打刻'; inEl.className = 'today-val tv-empty';
+    btnIn.disabled = false;
+    btnIn.querySelector('.pbtn-sub').textContent = 'タップして記録';
+  }
+
+  if (rec?.out) {
+    outEl.textContent = rec.out; outEl.className = 'today-val tv-out';
+    btnOut.disabled = true;
+    btnOut.querySelector('.pbtn-sub').textContent = '打刻済み';
+    const b = document.createElement('span'); b.className = 'pbtn-done-badge'; b.textContent = '✓ 済'; btnOut.appendChild(b);
+  } else {
+    outEl.textContent = '未打刻'; outEl.className = 'today-val tv-empty';
+    btnOut.disabled = false;
+    btnOut.querySelector('.pbtn-sub').textContent = 'タップして記録';
+  }
+
+  if (rec?.in && rec?.out) {
+    const h = calcHours(rec.in, rec.out);
+    hrsEl.textContent = h || '──';
+    hrsEl.className = h ? 'today-val tv-hrs' : 'today-val tv-empty';
+  } else {
+    hrsEl.textContent = '──'; hrsEl.className = 'today-val tv-empty';
+  }
+
+  renderHistory();
+}
+
+async function doPunchIn() {
+  if (!currentEmpId) return;
+  const key = todayKey();
+  if (getRec(currentEmpId, key)?.in) { showToast('既に出勤打刻済みです', 'err'); return; }
+  const t = `${pad2(new Date().getHours())}:${pad2(new Date().getMinutes())}`;
+  if (!db.records[currentEmpId]) db.records[currentEmpId] = {};
+  if (!db.records[currentEmpId][key]) db.records[currentEmpId][key] = {};
+  db.records[currentEmpId][key].in = t;
+  saveDB();
+  showStamp('出勤', t);
+  renderPunchScreen();
+  showToast(`出勤 ${t} を記録しました`, 'ok');
+  const emp = db.employees.find(e => e.id === currentEmpId);
+  if (emp) sendPunchEmail(emp, key, db.records[currentEmpId][key], 'in');
+}
+
+async function doPunchOut() {
+  if (!currentEmpId) return;
+  const key = todayKey();
+  const rec = db.records[currentEmpId]?.[key];
+  if (!rec?.in) { showToast('先に出勤打刻をしてください', 'err'); return; }
+  if (rec?.out) { showToast('既に退勤打刻済みです', 'err'); return; }
+  const t = `${pad2(new Date().getHours())}:${pad2(new Date().getMinutes())}`;
+  db.records[currentEmpId][key].out = t;
+  saveDB();
+  showStamp('退勤', t);
+  renderPunchScreen();
+  showToast(`退勤 ${t} を記録しました`, 'ok');
+  const emp = db.employees.find(e => e.id === currentEmpId);
+  if (emp) sendPunchEmail(emp, key, db.records[currentEmpId][key], 'out');
+}
+
+// ─────────────────────────────────────────
+// HISTORY
+// ─────────────────────────────────────────
+function renderHistory() {
+  const container = document.getElementById('recentHist');
+  const empRecs = db.records[currentEmpId] || {};
+  const sorted = Object.keys(empRecs).sort().reverse().slice(0, 7);
+  if (!sorted.length) {
+    container.innerHTML = '<div style="color:rgba(255,255,255,0.25); font-size:12px; padding:8px 0;">まだ記録がありません</div>';
+    return;
+  }
+  container.innerHTML = sorted.map(dk => {
+    const r = empRecs[dk];
+    const h = r.in && r.out ? calcHours(r.in, r.out) : null;
+    return `<div class="hist-row">
+      <span class="hist-date">${dk.slice(5)}</span>
+      <div class="hist-times">
+        <span class="ht-in">${r.in||'--'}</span>
+        <span class="ht-sep">→</span>
+        <span class="ht-out">${r.out||'--'}</span>
+        ${h ? `<span class="ht-hrs">(${h})</span>` : ''}
+      </div>
+      <button class="edit-btn" onclick="openEditModal('${currentEmpId}','${dk}')">修正</button>
+    </div>`;
+  }).join('');
+}
+
+// ─────────────────────────────────────────
+// EDIT MODAL
+// ─────────────────────────────────────────
+function openEditModal(empId, dk) {
+  editEmpId = empId; editDateKey = dk;
+  const r = getRec(empId, dk) || {};
+  document.getElementById('meIn').value = r.in || '';
+  document.getElementById('meOut').value = r.out || '';
+  document.getElementById('editModal').classList.add('show');
+}
+function closeModal() { document.getElementById('editModal').classList.remove('show'); }
+function saveEdit() {
+  if (!editEmpId || !editDateKey) return;
+  const inT = document.getElementById('meIn').value;
+  const outT = document.getElementById('meOut').value;
+  if (!db.records[editEmpId]) db.records[editEmpId] = {};
+  if (!db.records[editEmpId][editDateKey]) db.records[editEmpId][editDateKey] = {};
+  if (inT) db.records[editEmpId][editDateKey].in = inT;
+  if (outT) db.records[editEmpId][editDateKey].out = outT;
+  saveDB();
+  closeModal();
+  renderPunchScreen();
+  showToast('修正しました', 'ok');
+}
+
+// ─────────────────────────────────────────
+// STAMP
+// ─────────────────────────────────────────
+function showStamp(label, time) {
+  const ov = document.getElementById('stampOverlay');
+  document.getElementById('stampLabel').textContent = label;
+  document.getElementById('stampTime').textContent = time;
+  ov.classList.add('show');
+  setTimeout(() => ov.classList.remove('show'), 1600);
+}
+
+// ─────────────────────────────────────────
+// EMAIL (Anthropic API + Gmail MCP)
+// ─────────────────────────────────────────
+async function sendPunchEmail(emp, dateKey, rec, type) {
+  const addrs = db.emailSettings?.addresses || [];
+  if (!addrs.length) return;
+  const mgrName = (db.manager?.last || db.manager?.first)
+    ? `${db.manager.last} ${db.manager.first}`.trim() : '管理者';
+  const sender = db.emailSettings?.senderName || '勤怠管理システム';
+  const fullName = `${emp.last} ${emp.first}`;
+  const isIn = type === 'in';
+  const labelJP = isIn ? '出勤' : '退勤';
+  const punchTime = isIn ? rec.in : rec.out;
+  const hours = rec.in && rec.out ? calcHours(rec.in, rec.out) : null;
+  const subject = `【${labelJP}報告】${fullName} - ${dateKey} ${punchTime}`;
+  const body = [
+    `${sender}から自動送信されました。`,
+    `担当管理者：${mgrName} 様`,
+    '────────────────',
+    `従業員名：${fullName}`,
+    `日　　付：${dateKey}`,
+    `${labelJP}時刻：${punchTime}`,
+    isIn ? '退勤時刻：（未打刻）' : `出勤時刻：${rec.in||'未記録'}`,
+    ...(!isIn && hours ? [`勤務時間：${hours}`] : []),
+    '────────────────',
+    '※開封確認が設定されています。',
+    '※このメールは自動送信です。'
+  ].join('\n');
+
+  for (const addr of addrs) {
+    try {
+      await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: 'claude-sonnet-4-20250514',
+          max_tokens: 500,
+          messages: [{ role: 'user', content: `以下の内容でGmailからメールを送信してください。\n宛先：${addr}\n件名：${subject}\n本文：\n${body}\n\n重要：Disposition-Notification-To: ${addr} ヘッダーを追加して開封確認を有効にしてください。` }],
+          mcp_servers: [{ type: 'url', url: 'https://gmail.mcp.claude.com/mcp', name: 'gmail-mcp' }]
+        })
+      });
+    } catch(e) { console.warn('メール送信エラー', e); }
+  }
+}
+
+// ─────────────────────────────────────────
+// TOAST
+// ─────────────────────────────────────────
+let toastTimer;
+function showToast(msg, type='') {
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.className = `toast ${type} show`;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.classList.remove('show'), 3000);
+}
+
+// ─────────────────────────────────────────
+// URL PARAM (QRコードからの直接アクセス)
+// ─────────────────────────────────────────
+window.addEventListener('load', () => {
+  renderNameList();
+  const p = new URLSearchParams(location.search);
+  const empId = p.get('emp');
+  if (empId && db.employees.find(e => e.id === empId)) openPunch(empId);
+});
+</script>
+</body>
+</html>
