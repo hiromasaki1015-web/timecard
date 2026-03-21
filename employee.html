@@ -482,9 +482,18 @@ body::before {
     <div class="hist-card">
       <div class="hist-title" id="monthlyTitle">今月の勤怠（20日締め）</div>
       <div id="monthlyTable"><div style="color:rgba(255,255,255,0.25); font-size:12px; padding:8px 0;">読み込み中...</div></div>
-      <div id="monthlyTotal" style="margin-top:10px; padding-top:10px; border-top:1px solid rgba(255,255,255,0.1); display:flex; justify-content:space-between; align-items:center;">
+      <div style="margin-top:10px; padding-top:10px; border-top:1px solid rgba(255,255,255,0.1); display:flex; justify-content:space-between; align-items:center;">
         <span style="font-size:11px; letter-spacing:2px; color:rgba(255,255,255,0.5);">合計勤務時間</span>
         <span id="monthlyTotalVal" style="font-family:'JetBrains Mono',monospace; font-size:18px; font-weight:700; color:#7eb8f0;">──</span>
+      </div>
+    </div>
+
+    <div class="hist-card" style="margin-top:12px;">
+      <div class="hist-title" id="prevMonthlyTitle">先月の勤怠（20日締め）</div>
+      <div id="prevMonthlyTable"><div style="color:rgba(255,255,255,0.25); font-size:12px; padding:8px 0;">読み込み中...</div></div>
+      <div style="margin-top:10px; padding-top:10px; border-top:1px solid rgba(255,255,255,0.1); display:flex; justify-content:space-between; align-items:center;">
+        <span style="font-size:11px; letter-spacing:2px; color:rgba(255,255,255,0.5);">合計勤務時間</span>
+        <span id="prevMonthlyTotalVal" style="font-family:'JetBrains Mono',monospace; font-size:18px; font-weight:700; color:#7eb8f0;">──</span>
       </div>
     </div>
   </div>
@@ -753,47 +762,78 @@ async function doPunchOut() {
 // ─────────────────────────────────────────
 let historyCache = {};
 
-// 20日締めの期間を取得（今日が21日以降→今月21日〜翌月20日、20日以前→前月21日〜今月20日）
+// 20日締めの期間を取得
 function getMonthlyPeriod() {
   const now = new Date();
   const pad = n => String(n).padStart(2,'0');
   let startYear, startMonth, endYear, endMonth;
   if (now.getDate() >= 21) {
-    // 今月21日〜翌月20日
     startYear = now.getFullYear();
     startMonth = now.getMonth() + 1;
     endMonth = now.getMonth() + 2;
     endYear = now.getFullYear();
     if (endMonth > 12) { endMonth = 1; endYear++; }
   } else {
-    // 前月21日〜今月20日
     startMonth = now.getMonth();
     startYear = now.getFullYear();
     if (startMonth === 0) { startMonth = 12; startYear--; }
     endYear = now.getFullYear();
     endMonth = now.getMonth() + 1;
   }
-  const startDate = startYear + '-' + pad(startMonth) + '-21';
-  const endDate = endYear + '-' + pad(endMonth) + '-20';
-  return { startDate, endDate };
+  return {
+    startDate: startYear + '-' + pad(startMonth) + '-21',
+    endDate: endYear + '-' + pad(endMonth) + '-20'
+  };
+}
+
+// 先月の20日締め期間を取得
+function getPrevMonthlyPeriod() {
+  const now = new Date();
+  const pad = n => String(n).padStart(2,'0');
+  const cur = getMonthlyPeriod();
+  // 今月の開始日の前日から1ヶ月前
+  const curStart = new Date(cur.startDate + 'T00:00:00');
+  const prevEnd = new Date(curStart);
+  prevEnd.setDate(prevEnd.getDate() - 1); // 今月開始日の前日 = 先月20日
+  const prevStart = new Date(prevEnd);
+  prevStart.setDate(1); // まず1日に
+  prevStart.setDate(prevStart.getDate() - 10); // 前月21日へ
+  // 前月21日を正確に計算
+  let sy = prevEnd.getFullYear();
+  let sm = prevEnd.getMonth(); // 先月
+  if (sm === 0) { sm = 12; sy--; }
+  return {
+    startDate: sy + '-' + pad(sm) + '-21',
+    endDate: prevEnd.getFullYear() + '-' + pad2(prevEnd.getMonth()+1) + '-' + pad2(prevEnd.getDate())
+  };
 }
 
 let monthlyCache = {};
 
+let prevMonthlyCache = {};
+
 async function loadHistory(empId) {
-  // 今月（20日締め）のみ取得・表示
+  // 今月（20日締め）
   const period = getMonthlyPeriod();
   try {
     const res = await gasCall({ action: 'getRecords', startDate: period.startDate, endDate: period.endDate });
     if (res.ok) monthlyCache = res.records[empId] || {};
   } catch(e) {}
-  renderMonthly(period);
+  renderMonthly(period, 'monthlyTitle', 'monthlyTable', 'monthlyTotalVal', monthlyCache);
+
+  // 先月（20日締め）
+  const prevPeriod = getPrevMonthlyPeriod();
+  try {
+    const res2 = await gasCall({ action: 'getRecords', startDate: prevPeriod.startDate, endDate: prevPeriod.endDate });
+    if (res2.ok) prevMonthlyCache = res2.records[empId] || {};
+  } catch(e) {}
+  renderMonthly(prevPeriod, 'prevMonthlyTitle', 'prevMonthlyTable', 'prevMonthlyTotalVal', prevMonthlyCache);
 }
 
-function renderMonthly(period) {
-  const container = document.getElementById('monthlyTable');
-  const titleEl = document.getElementById('monthlyTitle');
-  const totalEl = document.getElementById('monthlyTotalVal');
+function renderMonthly(period, titleId, tableId, totalId, cache) {
+  const container = document.getElementById(tableId);
+  const titleEl = document.getElementById(titleId);
+  const totalEl = document.getElementById(totalId);
 
   // タイトル更新
   if (titleEl) {
@@ -809,7 +849,7 @@ function renderMonthly(period) {
   }
 
   // データがある日だけ表示
-  const activeDates = dates.filter(dk => monthlyCache[dk] && (monthlyCache[dk].in || monthlyCache[dk].out));
+  const activeDates = dates.filter(dk => cache[dk] && (cache[dk].in || cache[dk].out));
 
   if (!activeDates.length) {
     container.innerHTML = '<div style="color:rgba(255,255,255,0.25); font-size:12px; padding:8px 0;">まだ記録がありません</div>';
@@ -821,7 +861,7 @@ function renderMonthly(period) {
   const DAYS = ['日','月','火','水','木','金','土'];
 
   container.innerHTML = activeDates.map(dk => {
-    const r = monthlyCache[dk] || {};
+    const r = cache[dk] || {};
     const h = r.in && r.out ? calcHours(r.in, r.out) : null;
     if (h) {
       const [hh, mm] = h.replace('時間', ':').replace('分', '').split(':').map(Number);
