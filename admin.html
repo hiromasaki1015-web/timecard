@@ -830,7 +830,8 @@ async function renderTs() {
     const res = await gasCall({ action: 'getRecords', startDate: dates[0], endDate: dates[dates.length-1] });
     if (res.ok) tsRecords = res.records;
   } catch(e) { showToast('データ取得に失敗しました', 'err'); }
-  tbody.innerHTML = dates.map(dk => {
+  // 日付ごとの行
+  const rows = dates.map(dk => {
     const d = new Date(dk+'T00:00:00'); const dow = d.getDay(); const isWE = dow===0||dow===6;
     const cells = employees.map(emp => {
       const r = (tsRecords[emp.id] && tsRecords[emp.id][dk]) || {};
@@ -839,6 +840,26 @@ async function renderTs() {
     }).join('');
     return '<tr class="' + (isWE?'row-we':'') + '"><td>' + dk.slice(5) + '</td><td>' + DAYS[dow] + '</td>' + cells + '</tr>';
   }).join('');
+
+  // 合計行
+  const totalCells = employees.map(emp => {
+    let totalMins = 0;
+    dates.forEach(dk => {
+      const r = (tsRecords[emp.id] && tsRecords[emp.id][dk]) || {};
+      if (r.in && r.out) {
+        const [ih,im] = r.in.split(':').map(Number);
+        const [oh,om] = r.out.split(':').map(Number);
+        const d = (oh*60+om)-(ih*60+im);
+        if (d > 0) totalMins += d;
+      }
+    });
+    const h = Math.floor(totalMins/60);
+    const m = totalMins % 60;
+    const label = totalMins > 0 ? h + '時間' + m + '分' : '–';
+    return '<td colspan="3" style="font-weight:700; color:var(--navy); background:#e8f0fb;">' + label + '</td>';
+  }).join('');
+
+  tbody.innerHTML = rows + '<tr style="border-top:2px solid var(--navy);"><td colspan="2" style="font-weight:700; background:#e8f0fb; text-align:center;">合計</td>' + totalCells + '</tr>';
 }
 
 async function dlExcel() {
@@ -865,6 +886,25 @@ async function dlExcel() {
     });
     csv += row.join(',') + '\n';
   });
+  // 合計行を追加
+  const totalRow = ['合計', ''];
+  employees.forEach(emp => {
+    let totalMins = 0;
+    dates.forEach(dk => {
+      const r = (tsRecords[emp.id] && tsRecords[emp.id][dk]) || {};
+      if (r.in && r.out) {
+        const [ih,im] = r.in.split(':').map(Number);
+        const [oh,om] = r.out.split(':').map(Number);
+        const d = (oh*60+om)-(ih*60+im);
+        if (d > 0) totalMins += d;
+      }
+    });
+    const h = Math.floor(totalMins/60);
+    const m = totalMins % 60;
+    totalRow.push('', '', totalMins > 0 ? h + '時間' + m + '分' : '');
+  });
+  csv += totalRow.join(',') + '\n';
+
   const a = document.createElement('a');
   a.href = URL.createObjectURL(new Blob([csv], {type:'text/csv;charset=utf-8;'}));
   a.download = '勤怠表_' + label.replace(/[年月〜（）\s]/g,'_') + '.csv';
