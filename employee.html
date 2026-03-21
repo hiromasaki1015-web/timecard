@@ -483,6 +483,15 @@ body::before {
       <div class="hist-title">最近の記録（直近7日）</div>
       <div id="recentHist"><div style="color:rgba(255,255,255,0.25); font-size:12px; padding:8px 0;">まだ記録がありません</div></div>
     </div>
+
+    <div class="hist-card" style="margin-top:12px;">
+      <div class="hist-title" id="monthlyTitle">今月の勤怠（20日締め）</div>
+      <div id="monthlyTable"><div style="color:rgba(255,255,255,0.25); font-size:12px; padding:8px 0;">読み込み中...</div></div>
+      <div id="monthlyTotal" style="margin-top:10px; padding-top:10px; border-top:1px solid rgba(255,255,255,0.1); display:flex; justify-content:space-between; align-items:center;">
+        <span style="font-size:11px; letter-spacing:2px; color:rgba(255,255,255,0.5);">合計勤務時間</span>
+        <span id="monthlyTotalVal" style="font-family:'JetBrains Mono',monospace; font-size:18px; font-weight:700; color:#7eb8f0;">──</span>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -749,15 +758,96 @@ async function doPunchOut() {
 // ─────────────────────────────────────────
 let historyCache = {};
 
+// 20日締めの期間を取得
+function getMonthlyPeriod() {
+  const now = new Date();
+  const pad = n => String(n).padStart(2,'0');
+  let startYear = now.getFullYear();
+  let startMonth = now.getMonth(); // 前月
+  if (startMonth === 0) { startMonth = 12; startYear--; }
+  const startDate = startYear + '-' + pad(startMonth) + '-21';
+  const endDate = now.getFullYear() + '-' + pad(now.getMonth()+1) + '-20';
+  return { startDate, endDate };
+}
+
+let monthlyCache = {};
+
 async function loadHistory(empId) {
   const now = new Date();
   const past = new Date(now); past.setDate(past.getDate() - 6);
-  const startDate = `${past.getFullYear()}-${pad2(past.getMonth()+1)}-${pad2(past.getDate())}`;
+  const startDate = now.getFullYear() + '-' + pad2(now.getMonth()+1) + '-' + pad2(past.getDate());
+
+  // 直近7日
   try {
     const res = await gasCall({ action: 'getRecords', startDate, endDate: todayKey() });
     if (res.ok) historyCache = res.records[empId] || {};
   } catch(e) {}
   renderHistory();
+
+  // 今月（20日締め）
+  const period = getMonthlyPeriod();
+  try {
+    const res2 = await gasCall({ action: 'getRecords', startDate: period.startDate, endDate: period.endDate });
+    if (res2.ok) monthlyCache = res2.records[empId] || {};
+  } catch(e) {}
+  renderMonthly(period);
+}
+
+function renderMonthly(period) {
+  const container = document.getElementById('monthlyTable');
+  const titleEl = document.getElementById('monthlyTitle');
+  const totalEl = document.getElementById('monthlyTotalVal');
+
+  // タイトル更新
+  if (titleEl) {
+    titleEl.textContent = period.startDate.slice(5) + ' 〜 ' + period.endDate.slice(5) + '（20日締め）';
+  }
+
+  const dates = [];
+  let cur = new Date(period.startDate + 'T00:00:00');
+  const end = new Date(period.endDate + 'T00:00:00');
+  while (cur <= end) {
+    dates.push(cur.getFullYear() + '-' + pad2(cur.getMonth()+1) + '-' + pad2(cur.getDate()));
+    cur.setDate(cur.getDate() + 1);
+  }
+
+  // データがある日だけ表示
+  const activeDates = dates.filter(dk => monthlyCache[dk] && (monthlyCache[dk].in || monthlyCache[dk].out));
+
+  if (!activeDates.length) {
+    container.innerHTML = '<div style="color:rgba(255,255,255,0.25); font-size:12px; padding:8px 0;">まだ記録がありません</div>';
+    if (totalEl) totalEl.textContent = '0時間0分';
+    return;
+  }
+
+  let totalMins = 0;
+  const DAYS = ['日','月','火','水','木','金','土'];
+
+  container.innerHTML = activeDates.map(dk => {
+    const r = monthlyCache[dk] || {};
+    const h = r.in && r.out ? calcHours(r.in, r.out) : null;
+    if (h) {
+      const [hh, mm] = h.replace('時間', ':').replace('分', '').split(':').map(Number);
+      totalMins += hh * 60 + mm;
+    }
+    const d = new Date(dk + 'T00:00:00');
+    const dow = DAYS[d.getDay()];
+    return '<div class="hist-row">' +
+      '<span class="hist-date">' + dk.slice(5) + '(' + dow + ')</span>' +
+      '<div class="hist-times">' +
+        '<span class="ht-in">' + (r.in||'--') + '</span>' +
+        '<span class="ht-sep">→</span>' +
+        '<span class="ht-out">' + (r.out||'--') + '</span>' +
+        (h ? '<span class="ht-hrs">(' + h + ')</span>' : '') +
+      '</div>' +
+    '</div>';
+  }).join('');
+
+  if (totalEl) {
+    const th = Math.floor(totalMins / 60);
+    const tm = totalMins % 60;
+    totalEl.textContent = th + '時間' + tm + '分';
+  }
 }
 
 function renderHistory() {
