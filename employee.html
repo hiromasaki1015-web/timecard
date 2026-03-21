@@ -480,11 +480,6 @@ body::before {
     </div>
 
     <div class="hist-card">
-      <div class="hist-title">最近の記録（直近7日）</div>
-      <div id="recentHist"><div style="color:rgba(255,255,255,0.25); font-size:12px; padding:8px 0;">まだ記録がありません</div></div>
-    </div>
-
-    <div class="hist-card" style="margin-top:12px;">
       <div class="hist-title" id="monthlyTitle">今月の勤怠（20日締め）</div>
       <div id="monthlyTable"><div style="color:rgba(255,255,255,0.25); font-size:12px; padding:8px 0;">読み込み中...</div></div>
       <div id="monthlyTotal" style="margin-top:10px; padding-top:10px; border-top:1px solid rgba(255,255,255,0.1); display:flex; justify-content:space-between; align-items:center;">
@@ -758,37 +753,39 @@ async function doPunchOut() {
 // ─────────────────────────────────────────
 let historyCache = {};
 
-// 20日締めの期間を取得
+// 20日締めの期間を取得（今日が21日以降→今月21日〜翌月20日、20日以前→前月21日〜今月20日）
 function getMonthlyPeriod() {
   const now = new Date();
   const pad = n => String(n).padStart(2,'0');
-  let startYear = now.getFullYear();
-  let startMonth = now.getMonth(); // 前月
-  if (startMonth === 0) { startMonth = 12; startYear--; }
+  let startYear, startMonth, endYear, endMonth;
+  if (now.getDate() >= 21) {
+    // 今月21日〜翌月20日
+    startYear = now.getFullYear();
+    startMonth = now.getMonth() + 1;
+    endMonth = now.getMonth() + 2;
+    endYear = now.getFullYear();
+    if (endMonth > 12) { endMonth = 1; endYear++; }
+  } else {
+    // 前月21日〜今月20日
+    startMonth = now.getMonth();
+    startYear = now.getFullYear();
+    if (startMonth === 0) { startMonth = 12; startYear--; }
+    endYear = now.getFullYear();
+    endMonth = now.getMonth() + 1;
+  }
   const startDate = startYear + '-' + pad(startMonth) + '-21';
-  const endDate = now.getFullYear() + '-' + pad(now.getMonth()+1) + '-20';
+  const endDate = endYear + '-' + pad(endMonth) + '-20';
   return { startDate, endDate };
 }
 
 let monthlyCache = {};
 
 async function loadHistory(empId) {
-  const now = new Date();
-  const past = new Date(now); past.setDate(past.getDate() - 6);
-  const startDate = now.getFullYear() + '-' + pad2(now.getMonth()+1) + '-' + pad2(past.getDate());
-
-  // 直近7日
-  try {
-    const res = await gasCall({ action: 'getRecords', startDate, endDate: todayKey() });
-    if (res.ok) historyCache = res.records[empId] || {};
-  } catch(e) {}
-  renderHistory();
-
-  // 今月（20日締め）
+  // 今月（20日締め）のみ取得・表示
   const period = getMonthlyPeriod();
   try {
-    const res2 = await gasCall({ action: 'getRecords', startDate: period.startDate, endDate: period.endDate });
-    if (res2.ok) monthlyCache = res2.records[empId] || {};
+    const res = await gasCall({ action: 'getRecords', startDate: period.startDate, endDate: period.endDate });
+    if (res.ok) monthlyCache = res.records[empId] || {};
   } catch(e) {}
   renderMonthly(period);
 }
@@ -841,6 +838,7 @@ function renderMonthly(period) {
         (h ? '<span class="ht-hrs">(' + h + ')</span>' : '') +
       '</div>' +
     '</div>';
+    // 修正ボタンなし（管理者のみ修正可能）
   }).join('');
 
   if (totalEl) {
