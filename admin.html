@@ -437,30 +437,43 @@ function downloadCsv() {
   const month = parseInt(document.getElementById('tsMonth').value);
   const { start, end } = getPeriod(year, month);
   const fileName = '勤怠_' + year + '_' + String(month).padStart(2,'0') + '.xlsx';
-  const title    = '東海商販勤怠管理';
-  const subtitle = '東海商販 ' + year + '年' + month + '月分';
+  const titleStr    = '東海商販勤怠管理';
+  const subtitleStr = '東海商販 ' + year + '年' + month + '月分';
 
   const days = [];
   const sd = new Date(start+'T00:00:00'), ed = new Date(end+'T00:00:00');
   for (let d = new Date(sd); d <= ed; d.setDate(d.getDate()+1)) days.push(new Date(d));
   const DOW = ['日','月','火','水','木','金','土'];
 
-  const totals = employees.map(() => ({ total:0, inner:0, outer:0 }));
-  const dataRows = [];
+  // 各日付ごとに出勤者を出勤時刻順(早い順)で最大2人取得
+  function getDayAttendees(dateKey) {
+    const attended = [];
+    employees.forEach(emp => {
+      const r = tsRecords[emp.id] && tsRecords[emp.id][dateKey] ? tsRecords[emp.id][dateKey] : null;
+      if (r && r.in) attended.push({ emp, r });
+    });
+    // 出勤時刻順にソート
+    attended.sort((a, b) => (a.r.in||'99:99').localeCompare(b.r.in||'99:99'));
+    return attended.slice(0, 2);
+  }
+
+  // 合計集計（全員分）
+  const totals = {};
+  employees.forEach(emp => { totals[emp.id] = { total:0, inner:0, outer:0 }; });
   days.forEach(d => {
     const key = d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
-    const dispDate = (d.getMonth()+1) + '/' + d.getDate();
-    const row = [dispDate, DOW[d.getDay()]];
-    employees.forEach((emp, i) => {
+    employees.forEach(emp => {
       const r = tsRecords[emp.id] && tsRecords[emp.id][key] ? tsRecords[emp.id][key] : {};
-      const sl = r.shift && SHIFT_RULES[r.shift] ? SHIFT_RULES[r.shift].label : '';
-      if (r.total) totals[i].total += strToMin(r.total);
-      if (r.inner) totals[i].inner += strToMin(r.inner);
-      if (r.outer) totals[i].outer += strToMin(r.outer);
-      row.push(emp.last+emp.first, sl, r.in||'', r.out||'', r.total||'', r.inner||'', r.outer||'');
+      if (r.total) totals[emp.id].total += strToMin(r.total);
+      if (r.inner) totals[emp.id].inner += strToMin(r.inner);
+      if (r.outer) totals[emp.id].outer += strToMin(r.outer);
     });
-    dataRows.push(row);
   });
+
+  // 合計行に出る人（1人以上出勤した人だけ）
+  const activeEmps = employees.filter(emp =>
+    totals[emp.id].total > 0 || totals[emp.id].inner > 0 || totals[emp.id].outer > 0
+  );
 
   if (typeof XLSX === 'undefined') {
     alert('Excelライブラリ読み込み中です。少し待ってから再度押してください。');
@@ -472,6 +485,9 @@ function downloadCsv() {
   const merges = [];
   let rowIdx = 0;
 
+  // 列構成: A=日付 B=曜日 C=氏名① D=勤務 E=出/時間 F=退/時間 G=合計 H=時間内 I=時間外 J=氏名② K=勤務 L=出/時間 M=退/時間 N=合計 O=時間内 P=時間外
+  const TOTAL_COLS = 16; // A〜P
+
   const navyHex  = 'FF0F1B35';
   const navy2Hex = 'FF2A3F5F';
   const blueHex  = 'FF1565C0';
@@ -479,12 +495,11 @@ function downloadCsv() {
   const totalBg  = 'FF1A2D52';
   const lightBlue= 'FF90CAF9';
   const lightOrg = 'FFFFCC80';
-  const totalCols = 2 + employees.length * 7;
 
-  function hStyle(bg, fg, bold) {
+  function hStyle(bg, fg) {
     return {
-      font: { bold: bold!==false, color: { rgb: fg||'FFFFFFFF' } },
-      fill: { fgColor: { rgb: bg||navyHex } },
+      font: { bold:true, color:{ rgb: fg||'FFFFFFFF' } },
+      fill: { fgColor:{ rgb: bg||navyHex } },
       alignment: { horizontal:'center', vertical:'center', wrapText:true },
       border: { bottom:{style:'thin',color:{rgb:'FFD0D7E3'}}, right:{style:'thin',color:{rgb:'FFD0D7E3'}} }
     };
@@ -507,104 +522,140 @@ function downloadCsv() {
   }
   function setCell(r, c, v, s) {
     const addr = XLSX.utils.encode_cell({r, c});
-    ws[addr] = { v: v===undefined||v===null?'':v, t:'s' };
+    ws[addr] = { v: v===undefined||v===null?'':String(v), t:'s' };
     if (s) ws[addr].s = s;
   }
 
-  // ── 1行目: A1=タイトル（全列結合）──
-  setCell(rowIdx, 0, title, {
-    font: { bold:true, sz:14, color:{rgb:'FFFFFFFF'} },
-    fill: { fgColor:{rgb:navyHex} },
-    alignment: { horizontal:'center', vertical:'center' }
+  // ── 1行目: タイトル（A〜P結合）──
+  setCell(rowIdx, 0, titleStr, {
+    font:{bold:true, sz:14, color:{rgb:'FFFFFFFF'}},
+    fill:{fgColor:{rgb:navyHex}},
+    alignment:{horizontal:'center', vertical:'center'}
   });
-  for (let c = 1; c < totalCols; c++) setCell(rowIdx, c, '', { fill:{fgColor:{rgb:navyHex}} });
-  merges.push({s:{r:rowIdx,c:0}, e:{r:rowIdx,c:totalCols-1}});
+  for (let c = 1; c < TOTAL_COLS; c++) setCell(rowIdx, c, '', {fill:{fgColor:{rgb:navyHex}}});
+  merges.push({s:{r:rowIdx,c:0}, e:{r:rowIdx,c:TOTAL_COLS-1}});
   rowIdx++;
 
-  // ── 2行目: A2=会社名+期間（全列結合）──
-  setCell(rowIdx, 0, subtitle, {
-    font: { bold:true, sz:12, color:{rgb:'FF0F1B35'} },
-    fill: { fgColor:{rgb:'FFFAEEDA'} },
-    alignment: { horizontal:'center', vertical:'center' }
+  // ── 2行目: サブタイトル（A〜P結合）──
+  setCell(rowIdx, 0, subtitleStr, {
+    font:{bold:true, sz:12, color:{rgb:'FF0F1B35'}},
+    fill:{fgColor:{rgb:'FFFAEEDA'}},
+    alignment:{horizontal:'center', vertical:'center'}
   });
-  for (let c = 1; c < totalCols; c++) setCell(rowIdx, c, '', { fill:{fgColor:{rgb:'FFFAEEDA'}} });
-  merges.push({s:{r:rowIdx,c:0}, e:{r:rowIdx,c:totalCols-1}});
+  for (let c = 1; c < TOTAL_COLS; c++) setCell(rowIdx, c, '', {fill:{fgColor:{rgb:'FFFAEEDA'}}});
+  merges.push({s:{r:rowIdx,c:0}, e:{r:rowIdx,c:TOTAL_COLS-1}});
   rowIdx++;
 
-  // ── 3行目: 列ヘッダー ──
-  setCell(rowIdx, 0, '日付', hStyle(navy2Hex));
-  setCell(rowIdx, 1, '曜日', hStyle(navy2Hex));
-  employees.forEach((emp, i) => {
-    const sc = 2 + i * 7;
-    setCell(rowIdx, sc,   emp.last+emp.first, hStyle(navyHex));
-    setCell(rowIdx, sc+1, '勤務',    hStyle(navy2Hex));
-    setCell(rowIdx, sc+2, '出/時間', hStyle(navy2Hex));
-    setCell(rowIdx, sc+3, '退/時間', hStyle(navy2Hex));
-    setCell(rowIdx, sc+4, '合計',    hStyle(navy2Hex));
-    setCell(rowIdx, sc+5, '時間内',  hStyle('FF1A3A6C', lightBlue));
-    setCell(rowIdx, sc+6, '時間外',  hStyle('FF5C3A00', lightOrg));
-  });
+  // ── 3行目: 列ヘッダー（氏名はその日の出勤者が入るので「出勤者①②」と固定）──
+  setCell(rowIdx, 0,  '日付',     hStyle(navy2Hex));
+  setCell(rowIdx, 1,  '曜日',     hStyle(navy2Hex));
+  setCell(rowIdx, 2,  '出勤者①', hStyle(navyHex));
+  setCell(rowIdx, 3,  '勤務',     hStyle(navy2Hex));
+  setCell(rowIdx, 4,  '出/時間',  hStyle(navy2Hex));
+  setCell(rowIdx, 5,  '退/時間',  hStyle(navy2Hex));
+  setCell(rowIdx, 6,  '合計',     hStyle(navy2Hex));
+  setCell(rowIdx, 7,  '時間内',   hStyle('FF1A3A6C', lightBlue));
+  setCell(rowIdx, 8,  '時間外',   hStyle('FF5C3A00', lightOrg));
+  setCell(rowIdx, 9,  '出勤者②', hStyle(navyHex));
+  setCell(rowIdx, 10, '勤務',     hStyle(navy2Hex));
+  setCell(rowIdx, 11, '出/時間',  hStyle(navy2Hex));
+  setCell(rowIdx, 12, '退/時間',  hStyle(navy2Hex));
+  setCell(rowIdx, 13, '合計',     hStyle(navy2Hex));
+  setCell(rowIdx, 14, '時間内',   hStyle('FF1A3A6C', lightBlue));
+  setCell(rowIdx, 15, '時間外',   hStyle('FF5C3A00', lightOrg));
   rowIdx++;
 
   // ── データ行 ──
-  dataRows.forEach(row => {
-    const dow = row[1];
+  days.forEach(d => {
+    const key = d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+    const dispDate = (d.getMonth()+1) + '/' + d.getDate();
+    const dow = DOW[d.getDay()];
     const bgRgb = dow==='日' ? 'FFFFF8E1' : dow==='土' ? 'FFE8F5E9' : 'FFFFFFFF';
-    setCell(rowIdx, 0, row[0], dStyle(null, bgRgb));
-    setCell(rowIdx, 1, row[1], dStyle(null, bgRgb));
-    employees.forEach((_, i) => {
-      const sc = 2 + i * 7;
-      const base = 2 + i * 7;
-      setCell(rowIdx, sc,   row[base],   dStyle(null, bgRgb));
-      setCell(rowIdx, sc+1, row[base+1], dStyle(null, bgRgb));
-      setCell(rowIdx, sc+2, row[base+2], dStyle(null, bgRgb));
-      setCell(rowIdx, sc+3, row[base+3], dStyle(null, bgRgb));
-      setCell(rowIdx, sc+4, row[base+4], dStyle(null, bgRgb));
-      setCell(rowIdx, sc+5, row[base+5], dStyle(blueHex, bgRgb));
-      setCell(rowIdx, sc+6, row[base+6], dStyle(orangeHex, bgRgb));
-    });
+    const attendees = getDayAttendees(key);
+
+    setCell(rowIdx, 0, dispDate, dStyle(null, bgRgb));
+    setCell(rowIdx, 1, dow,      dStyle(null, bgRgb));
+
+    for (let slot = 0; slot < 2; slot++) {
+      const base = 2 + slot * 7;
+      const att = attendees[slot];
+      if (att) {
+        const sl = att.r.shift && SHIFT_RULES[att.r.shift] ? SHIFT_RULES[att.r.shift].label : '';
+        setCell(rowIdx, base,   att.emp.last+att.emp.first, dStyle(null, bgRgb));
+        setCell(rowIdx, base+1, sl,           dStyle(null, bgRgb));
+        setCell(rowIdx, base+2, att.r.in||'', dStyle(null, bgRgb));
+        setCell(rowIdx, base+3, att.r.out||'',dStyle(null, bgRgb));
+        setCell(rowIdx, base+4, att.r.total||'', dStyle(null, bgRgb));
+        setCell(rowIdx, base+5, att.r.inner||'', dStyle(blueHex, bgRgb));
+        setCell(rowIdx, base+6, att.r.outer||'', dStyle(orangeHex, bgRgb));
+      } else {
+        for (let c = base; c < base+7; c++) setCell(rowIdx, c, '', dStyle(null, bgRgb));
+      }
+    }
     rowIdx++;
   });
 
   // ── 合計前ヘッダー（3行目のコピー）──
-  setCell(rowIdx, 0, '日付', hStyle(navy2Hex));
-  setCell(rowIdx, 1, '曜日', hStyle(navy2Hex));
-  employees.forEach((emp, i) => {
-    const sc = 2 + i * 7;
-    setCell(rowIdx, sc,   emp.last+emp.first, hStyle(navyHex));
-    setCell(rowIdx, sc+1, '勤務',    hStyle(navy2Hex));
-    setCell(rowIdx, sc+2, '出/時間', hStyle(navy2Hex));
-    setCell(rowIdx, sc+3, '退/時間', hStyle(navy2Hex));
-    setCell(rowIdx, sc+4, '合計',    hStyle(navy2Hex));
-    setCell(rowIdx, sc+5, '時間内',  hStyle('FF1A3A6C', lightBlue));
-    setCell(rowIdx, sc+6, '時間外',  hStyle('FF5C3A00', lightOrg));
-  });
+  setCell(rowIdx, 0,  '日付',     hStyle(navy2Hex));
+  setCell(rowIdx, 1,  '曜日',     hStyle(navy2Hex));
+  setCell(rowIdx, 2,  '出勤者①', hStyle(navyHex));
+  setCell(rowIdx, 3,  '勤務',     hStyle(navy2Hex));
+  setCell(rowIdx, 4,  '出/時間',  hStyle(navy2Hex));
+  setCell(rowIdx, 5,  '退/時間',  hStyle(navy2Hex));
+  setCell(rowIdx, 6,  '合計',     hStyle(navy2Hex));
+  setCell(rowIdx, 7,  '時間内',   hStyle('FF1A3A6C', lightBlue));
+  setCell(rowIdx, 8,  '時間外',   hStyle('FF5C3A00', lightOrg));
+  setCell(rowIdx, 9,  '出勤者②', hStyle(navyHex));
+  setCell(rowIdx, 10, '勤務',     hStyle(navy2Hex));
+  setCell(rowIdx, 11, '出/時間',  hStyle(navy2Hex));
+  setCell(rowIdx, 12, '退/時間',  hStyle(navy2Hex));
+  setCell(rowIdx, 13, '合計',     hStyle(navy2Hex));
+  setCell(rowIdx, 14, '時間内',   hStyle('FF1A3A6C', lightBlue));
+  setCell(rowIdx, 15, '時間外',   hStyle('FF5C3A00', lightOrg));
   rowIdx++;
 
-  // ── 合計行 ──
-  setCell(rowIdx, 0, '合　計', tStyle());
-  setCell(rowIdx, 1, '', tStyle());
-  employees.forEach((emp, i) => {
-    const sc = 2 + i * 7;
-    setCell(rowIdx, sc,   emp.last+emp.first,            tStyle());
-    setCell(rowIdx, sc+1, '',                             tStyle());
-    setCell(rowIdx, sc+2, '',                             tStyle());
-    setCell(rowIdx, sc+3, '',                             tStyle());
-    setCell(rowIdx, sc+4, minToStr(totals[i].total)||'',  tStyle());
-    setCell(rowIdx, sc+5, minToStr(totals[i].inner)||'',  tStyle(lightBlue));
-    setCell(rowIdx, sc+6, minToStr(totals[i].outer)||'',  tStyle(lightOrg));
+  // ── 合計行: 各人ごとに縦並び ──
+  activeEmps.forEach(emp => {
+    setCell(rowIdx, 0,  '合計', tStyle());
+    setCell(rowIdx, 1,  '',     tStyle());
+    setCell(rowIdx, 2,  emp.last+emp.first,              tStyle());
+    setCell(rowIdx, 3,  '',                              tStyle());
+    setCell(rowIdx, 4,  '',                              tStyle());
+    setCell(rowIdx, 5,  '',                              tStyle());
+    setCell(rowIdx, 6,  minToStr(totals[emp.id].total)||'', tStyle());
+    setCell(rowIdx, 7,  minToStr(totals[emp.id].inner)||'', tStyle(lightBlue));
+    setCell(rowIdx, 8,  minToStr(totals[emp.id].outer)||'', tStyle(lightOrg));
+    for (let c = 9; c < TOTAL_COLS; c++) setCell(rowIdx, c, '', tStyle());
+    rowIdx++;
   });
 
-  // 列幅
-  const colInfo = [{wch:8},{wch:5}];
-  employees.forEach(() => {
-    colInfo.push({wch:10},{wch:6},{wch:7},{wch:7},{wch:10},{wch:10},{wch:10});
-  });
-
-  ws['!ref'] = XLSX.utils.encode_range({s:{r:0,c:0}, e:{r:rowIdx,c:totalCols-1}});
+  // 列幅 A4縦に収まるよう調整
+  ws['!cols'] = [
+    {wch:7},  // A 日付
+    {wch:4},  // B 曜日
+    {wch:8},  // C 氏名①
+    {wch:5},  // D 勤務
+    {wch:6},  // E 出/時間
+    {wch:6},  // F 退/時間
+    {wch:8},  // G 合計
+    {wch:8},  // H 時間内
+    {wch:8},  // I 時間外
+    {wch:8},  // J 氏名②
+    {wch:5},  // K 勤務
+    {wch:6},  // L 出/時間
+    {wch:6},  // M 退/時間
+    {wch:8},  // N 合計
+    {wch:8},  // O 時間内
+    {wch:8},  // P 時間外
+  ];
+  ws['!rows'] = [{hpt:22},{hpt:20}].concat(Array(rowIdx-1).fill({hpt:16}));
+  ws['!ref'] = XLSX.utils.encode_range({s:{r:0,c:0}, e:{r:rowIdx-1,c:TOTAL_COLS-1}});
   ws['!merges'] = merges;
-  ws['!cols'] = colInfo;
-  ws['!rows'] = [{hpt:22},{hpt:20}].concat(Array(rowIdx-1).fill({hpt:18}));
+
+  // 印刷設定: A4縦、1ページ収まるよう
+  ws['!pageSetup'] = { paperSize:9, orientation:'portrait', fitToPage:true, fitToWidth:1, fitToHeight:1 };
+  ws['!printOptions'] = { gridLines:false };
+  ws['!margins'] = { left:0.5, right:0.5, top:0.75, bottom:0.75, header:0.3, footer:0.3 };
 
   XLSX.utils.book_append_sheet(wb, ws, '勤怠');
   XLSX.writeFile(wb, fileName);
