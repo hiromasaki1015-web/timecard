@@ -2,1022 +2,478 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>打刻 - 勤怠管理</title>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>東海商販 出退勤</title>
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@300;400;500;700;900&family=Shippori+Mincho:wght@400;600;700&family=JetBrains+Mono:wght@400;700&display=swap');
-
 :root {
-  --bg: #0d1f3c;
-  --bg2: #112244;
-  --surface: #1a3060;
-  --card: #ffffff;
-  --accent-in: #17a854;
-  --accent-in2: #128a43;
-  --accent-out: #d63031;
-  --accent-out2: #b02020;
-  --gold: #f0b429;
-  --sky: #5aaaff;
-  --text: #1a2540;
-  --text-inv: rgba(255,255,255,0.92);
-  --text-soft: rgba(255,255,255,0.55);
-  --line: #d0daea;
-  --muted: #8a9bb8;
-  --shadow: 0 8px 32px rgba(0,0,0,0.25);
-  --radius: 16px;
+  --navy:#0f1b35; --navy2:#1a2d52; --accent:#e8a020;
+  --bg:#f0f3f8; --white:#fff; --border:#d0d7e3;
+  --text:#1a2340; --muted:#6b7a99;
+  --green:#1a9e5c; --green2:#137843;
+  --red:#d63031; --red2:#a52828;
+  --blue:#1565c0; --orange:#e07b00;
 }
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:'Hiragino Kaku Gothic ProN','Meiryo',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;}
 
-* { box-sizing: border-box; margin: 0; padding: 0; }
+header{background:var(--navy);color:#fff;padding:14px 20px;text-align:center;}
+header h1{font-size:17px;font-weight:700;letter-spacing:.05em;}
 
-body {
-  font-family: 'Noto Sans JP', sans-serif;
-  background: var(--bg);
-  min-height: 100vh;
-  color: var(--text-inv);
-  overflow-x: hidden;
-}
+.container{max-width:480px;margin:0 auto;padding:16px 14px;}
 
-/* background pattern */
-body::before {
-  content: '';
-  position: fixed; inset: 0;
-  background:
-    radial-gradient(ellipse 80% 50% at 20% -10%, rgba(90,170,255,0.12) 0%, transparent 60%),
-    radial-gradient(ellipse 60% 40% at 80% 110%, rgba(23,168,84,0.08) 0%, transparent 60%);
-  pointer-events: none;
-  z-index: 0;
+/* 従業員選択 */
+.emp-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:8px;}
+.emp-btn{
+  padding:14px 8px;background:var(--white);border:1.5px solid var(--border);
+  border-radius:12px;font-size:15px;font-weight:700;cursor:pointer;
+  text-align:center;transition:all .15s;color:var(--text);
 }
+.emp-btn:hover{border-color:var(--navy);background:#f0f4ff;}
+.emp-btn.selected{border-color:var(--navy);background:var(--navy);color:#fff;}
 
-/* ── SCREENS ── */
-.screen { display: none; min-height: 100vh; position: relative; z-index: 1; flex-direction: column; }
-.screen.active { display: flex; }
+.section-title{font-size:13px;color:var(--muted);font-weight:700;margin:16px 0 8px;letter-spacing:.05em;text-transform:uppercase;}
 
-/* ── TOPBAR ── */
-.topbar {
-  height: 56px;
-  padding: 0 20px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  background: rgba(13,31,60,0.8);
-  backdrop-filter: blur(12px);
-  border-bottom: 1px solid rgba(255,255,255,0.08);
-  flex-shrink: 0;
+/* 打刻画面 */
+#punchScreen{display:none;}
+.punch-header{
+  background:var(--white);border-radius:14px;padding:18px;
+  text-align:center;margin-bottom:14px;
+  border:1.5px solid var(--border);
 }
-.topbar-logo {
-  font-family: 'Shippori Mincho', serif;
-  font-size: 14px;
-  letter-spacing: 4px;
-  color: var(--text-inv);
-  opacity: 0.9;
-}
-.topbar-clock {
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 14px;
-  color: var(--gold);
-  font-weight: 700;
-}
-.back-link {
-  font-size: 12px;
-  color: var(--text-soft);
-  cursor: pointer;
-  background: none;
-  border: none;
-  font-family: 'Noto Sans JP', sans-serif;
-  transition: color 0.2s;
-  padding: 0;
-}
-.back-link:hover { color: var(--text-inv); }
+.punch-name{font-size:22px;font-weight:700;color:var(--navy);margin-bottom:4px;}
+.punch-date{font-size:14px;color:var(--muted);}
+.punch-time{font-size:36px;font-weight:700;color:var(--navy);margin:8px 0 4px;font-variant-numeric:tabular-nums;}
 
-/* ── SELECT SCREEN ── */
-#screen-select {
-  align-items: center;
-  justify-content: center;
-  padding: 40px 20px;
+/* 勤務形態選択 */
+.shift-section{
+  background:var(--white);border-radius:14px;padding:16px;
+  margin-bottom:14px;border:1.5px solid var(--border);
 }
-.select-wrap {
-  width: 100%;
-  max-width: 420px;
+.shift-label{font-size:13px;color:var(--muted);margin-bottom:10px;font-weight:700;}
+.shift-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;}
+.shift-btn{
+  padding:12px 4px;border:1.5px solid var(--border);border-radius:10px;
+  background:var(--white);font-size:18px;font-weight:700;cursor:pointer;
+  text-align:center;transition:all .15s;color:var(--text);
 }
-.select-heading {
-  text-align: center;
-  margin-bottom: 32px;
-}
-.select-heading .title {
-  font-family: 'Shippori Mincho', serif;
-  font-size: 26px;
-  font-weight: 700;
-  letter-spacing: 5px;
-  margin-bottom: 6px;
-}
-.select-heading .sub {
-  font-size: 12px;
-  color: var(--text-soft);
-  letter-spacing: 2px;
-}
-.name-list { display: flex; flex-direction: column; gap: 10px; }
-.name-btn {
-  width: 100%;
-  background: rgba(255,255,255,0.07);
-  border: 1px solid rgba(255,255,255,0.14);
-  border-radius: 12px;
-  padding: 18px 20px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  cursor: pointer;
-  transition: all 0.2s;
-  color: var(--text-inv);
-  font-family: 'Noto Sans JP', sans-serif;
-  font-size: 17px;
-  font-weight: 600;
-  letter-spacing: 3px;
-  backdrop-filter: blur(8px);
-}
-.name-btn:hover {
-  background: rgba(255,255,255,0.13);
-  border-color: rgba(255,255,255,0.25);
-  transform: translateX(4px);
-}
-.name-btn .arrow { font-size: 18px; opacity: 0.45; }
-.empty-note { text-align: center; color: var(--text-soft); font-size: 13px; padding: 40px 0; line-height: 2; }
+.shift-btn:hover{border-color:var(--accent);background:#fff8e8;}
+.shift-btn.selected{border-color:var(--accent);background:var(--accent);color:var(--navy);}
+.shift-time{font-size:9px;color:var(--muted);margin-top:3px;line-height:1.3;}
+.shift-btn.selected .shift-time{color:var(--navy);}
 
-/* ── PUNCH SCREEN ── */
-#screen-punch { }
+/* 打刻ボタン */
+.punch-btns{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px;}
+.punch-in-btn,.punch-out-btn{
+  padding:20px 8px;border:none;border-radius:14px;
+  font-size:18px;font-weight:700;cursor:pointer;transition:all .15s;
+  display:flex;flex-direction:column;align-items:center;gap:6px;
+}
+.punch-in-btn{background:var(--green);color:#fff;}
+.punch-in-btn:hover{background:var(--green2);}
+.punch-out-btn{background:var(--red);color:#fff;}
+.punch-out-btn:hover{background:var(--red2);}
+.punch-in-btn:disabled,.punch-out-btn:disabled{opacity:.45;cursor:not-allowed;}
+.punch-icon{font-size:26px;}
+.punch-sub{font-size:12px;opacity:.85;}
 
-.punch-hero {
-  background: linear-gradient(180deg, var(--bg2) 0%, rgba(17,34,68,0.6) 100%);
-  padding: 28px 24px 24px;
-  text-align: center;
-  flex-shrink: 0;
-  border-bottom: 1px solid rgba(255,255,255,0.07);
+/* 今日の記録 */
+.today-card{
+  background:var(--white);border-radius:14px;padding:16px;
+  margin-bottom:14px;border:1.5px solid var(--border);
 }
-.punch-name {
-  font-family: 'Shippori Mincho', serif;
-  font-size: 30px;
-  font-weight: 700;
-  letter-spacing: 6px;
-  margin-bottom: 8px;
-}
-.punch-dt {
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 12px;
-  color: var(--text-soft);
-  letter-spacing: 1px;
-}
+.today-row{display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border);}
+.today-row:last-child{border-bottom:none;}
+.today-label{font-size:13px;color:var(--muted);}
+.today-val{font-size:15px;font-weight:700;color:var(--text);}
+.today-val.inner{color:var(--blue);}
+.today-val.outer{color:var(--orange);}
 
-.punch-body {
-  flex: 1;
-  padding: 20px;
-  max-width: 480px;
-  margin: 0 auto;
-  width: 100%;
+/* 勤怠一覧表 */
+.record-card{
+  background:var(--white);border-radius:14px;padding:16px;
+  margin-bottom:14px;border:1.5px solid var(--border);
 }
+.record-card h3{font-size:14px;font-weight:700;color:var(--navy);margin-bottom:12px;}
+.rec-table{width:100%;border-collapse:collapse;font-size:12px;}
+.rec-table th{background:var(--navy);color:#fff;padding:7px 5px;text-align:center;}
+.rec-table td{padding:7px 5px;border-bottom:1px solid var(--border);text-align:center;}
+.rec-table tr.weekend td{background:#fff8e1;}
+.rec-table tr.saturday td{background:#e8f5e9;}
+.rec-table .total-row td{background:var(--navy);color:#fff;font-weight:700;}
+.td-inner{color:var(--blue);font-weight:700;}
+.td-outer{color:var(--orange);font-weight:700;}
 
-/* today status */
-.today-card {
-  background: rgba(255,255,255,0.06);
-  border: 1px solid rgba(255,255,255,0.1);
-  border-radius: var(--radius);
-  padding: 18px 20px;
-  margin-bottom: 16px;
-  backdrop-filter: blur(8px);
+.back-btn{
+  background:var(--white);border:1.5px solid var(--border);border-radius:10px;
+  padding:11px;width:100%;font-size:14px;font-weight:700;cursor:pointer;
+  color:var(--muted);margin-bottom:20px;
 }
-.today-card-title {
-  font-size: 10px;
-  letter-spacing: 3px;
-  color: var(--text-soft);
-  margin-bottom: 14px;
-  font-weight: 600;
-}
-.today-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 9px 0;
-  border-bottom: 1px solid rgba(255,255,255,0.07);
-}
-.today-row:last-child { border-bottom: none; }
-.today-label { font-size: 13px; color: var(--text-soft); display: flex; align-items: center; gap: 7px; }
-.today-val {
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 18px;
-  font-weight: 700;
-}
-.tv-empty { color: rgba(255,255,255,0.2); font-size: 13px; font-family: 'Noto Sans JP', sans-serif; }
-.tv-in { color: #4ade80; }
-.tv-out { color: #f87171; }
-.tv-hrs { color: var(--sky); }
+.back-btn:hover{background:var(--bg);}
 
-/* punch buttons */
-.punch-btns {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 12px;
-  margin-bottom: 16px;
+.stamp{
+  text-align:center;padding:18px;font-size:16px;font-weight:700;
+  border-radius:12px;margin-bottom:12px;
 }
-.pbtn {
-  padding: 32px 12px 24px;
-  border: none;
-  border-radius: var(--radius);
-  cursor: pointer;
-  transition: all 0.15s;
-  font-family: 'Noto Sans JP', sans-serif;
-  position: relative;
-  overflow: hidden;
-}
-.pbtn:active { transform: scale(0.96); }
-.pbtn:disabled { opacity: 0.3; cursor: not-allowed; transform: none; }
+.stamp-in{background:#d4edda;color:#155724;}
+.stamp-out{background:#cce5ff;color:#004085;}
+.stamp-err{background:#f8d7da;color:#721c24;}
 
-.pbtn-in {
-  background: var(--accent-in);
-  box-shadow: 0 8px 28px rgba(23,168,84,0.4);
-}
-.pbtn-in:hover:not(:disabled) { background: var(--accent-in2); box-shadow: 0 10px 32px rgba(23,168,84,0.5); }
-.pbtn-out {
-  background: var(--accent-out);
-  box-shadow: 0 8px 28px rgba(214,48,49,0.4);
-}
-.pbtn-out:hover:not(:disabled) { background: var(--accent-out2); box-shadow: 0 10px 32px rgba(214,48,49,0.5); }
-
-.pbtn-label {
-  display: block;
-  font-size: 26px;
-  font-weight: 900;
-  letter-spacing: 5px;
-  color: white;
-  margin-bottom: 8px;
-}
-.pbtn-sub {
-  display: block;
-  font-size: 10px;
-  color: rgba(255,255,255,0.65);
-  letter-spacing: 1px;
-}
-.pbtn-done-badge {
-  position: absolute;
-  top: 10px; right: 10px;
-  background: rgba(0,0,0,0.25);
-  color: white;
-  font-size: 10px;
-  padding: 2px 8px;
-  border-radius: 10px;
-  letter-spacing: 1px;
-}
-
-/* history */
-.hist-card {
-  background: rgba(255,255,255,0.05);
-  border: 1px solid rgba(255,255,255,0.09);
-  border-radius: var(--radius);
-  padding: 16px 18px;
-  backdrop-filter: blur(8px);
-}
-.hist-title { font-size: 10px; letter-spacing: 3px; color: var(--text-soft); margin-bottom: 12px; font-weight: 600; }
-.hist-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 8px 0;
-  border-bottom: 1px solid rgba(255,255,255,0.06);
-  gap: 8px;
-}
-.hist-row:last-child { border-bottom: none; }
-.hist-date { font-size: 12px; color: var(--text-soft); white-space: nowrap; flex-shrink: 0; font-family: 'JetBrains Mono', monospace; }
-.hist-times { display: flex; gap: 8px; align-items: center; font-family: 'JetBrains Mono', monospace; font-size: 12px; }
-.ht-in { color: #4ade80; }
-.ht-sep { color: rgba(255,255,255,0.2); }
-.ht-out { color: #f87171; }
-.ht-hrs { color: var(--sky); font-size: 11px; }
-.edit-btn {
-  background: rgba(255,255,255,0.08);
-  border: 1px solid rgba(255,255,255,0.14);
-  color: rgba(255,255,255,0.6);
-  padding: 3px 10px;
-  border-radius: 6px;
-  font-size: 11px;
-  cursor: pointer;
-  font-family: 'Noto Sans JP', sans-serif;
-  transition: all 0.2s;
-  flex-shrink: 0;
-}
-.edit-btn:hover { background: rgba(255,255,255,0.14); color: white; }
-
-/* ── STAMP ── */
-.stamp-overlay {
-  position: fixed; inset: 0;
-  background: rgba(13,31,60,0.82);
-  display: flex; align-items: center; justify-content: center;
-  z-index: 9999;
-  opacity: 0; pointer-events: none;
-  transition: opacity 0.25s;
-}
-.stamp-overlay.show { opacity: 1; pointer-events: all; }
-.stamp-inner {
-  text-align: center;
-  transform: scale(0) rotate(-12deg);
-  transition: transform 0.32s cubic-bezier(0.34,1.56,0.64,1);
-}
-.stamp-overlay.show .stamp-inner { transform: scale(1) rotate(-12deg); }
-.stamp-box {
-  display: inline-block;
-  border: 7px solid #e53e3e;
-  border-radius: 10px;
-  padding: 16px 40px;
-}
-.stamp-kanji {
-  font-family: 'Shippori Mincho', serif;
-  font-size: 64px;
-  font-weight: 700;
-  color: #e53e3e;
-  letter-spacing: 8px;
-  display: block;
-}
-.stamp-time-lbl {
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 20px;
-  color: #e53e3e;
-  opacity: 0.85;
-  margin-top: 6px;
-}
-
-/* ── MODAL ── */
-.modal-bg {
-  position: fixed; inset: 0;
-  background: rgba(0,0,0,0.65);
-  display: flex; align-items: center; justify-content: center;
-  z-index: 500;
-  opacity: 0; pointer-events: none;
-  transition: opacity 0.2s;
-}
-.modal-bg.show { opacity: 1; pointer-events: all; }
-.modal {
-  background: white;
-  border-radius: 18px;
-  padding: 28px;
-  width: 90%; max-width: 340px;
-  transform: translateY(16px);
-  transition: transform 0.2s;
-  box-shadow: 0 20px 60px rgba(0,0,0,0.4);
-}
-.modal-bg.show .modal { transform: translateY(0); }
-.modal h3 { font-size: 15px; font-weight: 700; margin-bottom: 18px; color: #1a2540; letter-spacing: 1px; }
-.mf-label { display: block; font-size: 11px; letter-spacing: 2px; color: #6b7a9a; margin-bottom: 5px; font-weight: 600; }
-.mf-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 16px; }
-.mf-input {
-  width: 100%;
-  padding: 10px 12px;
-  border: 1.5px solid #d0daea;
-  border-radius: 8px;
-  font-size: 15px;
-  font-family: 'Noto Sans JP', sans-serif;
-  color: #1a2540;
-  background: #f6f8fc;
-}
-.mf-input:focus { outline: none; border-color: #5aaaff; }
-.modal-btns { display: flex; gap: 10px; }
-.mbtn {
-  flex: 1; padding: 11px;
-  border: none; border-radius: 8px;
-  font-size: 13px; font-family: 'Noto Sans JP', sans-serif;
-  font-weight: 700; cursor: pointer; letter-spacing: 1px;
-  transition: all 0.2s;
-}
-.mbtn-cancel { background: #f0f3f8; color: #6b7a9a; }
-.mbtn-save { background: #0f1b35; color: white; }
-.mbtn-save:hover { background: #1a2d52; }
-
-/* ── TOAST ── */
-.toast {
-  position: fixed;
-  bottom: 28px; left: 50%;
-  transform: translateX(-50%) translateY(80px);
-  background: rgba(26,48,96,0.95);
-  color: white;
-  padding: 12px 26px;
-  border-radius: 28px;
-  font-size: 13px;
-  z-index: 10000;
-  transition: transform 0.3s;
-  white-space: nowrap;
-  box-shadow: 0 8px 28px rgba(0,0,0,0.35);
-  pointer-events: none;
-  backdrop-filter: blur(8px);
-  border: 1px solid rgba(255,255,255,0.12);
-}
-.toast.show { transform: translateX(-50%) translateY(0); }
-.toast.ok { background: rgba(23,130,60,0.95); }
-.toast.err { background: rgba(180,40,40,0.95); }
-
-@media (max-width: 400px) {
-  .punch-btns { grid-template-columns: 1fr; }
-}
+.loading{text-align:center;padding:24px;color:var(--muted);font-size:14px;}
 </style>
 </head>
 <body>
 
-<!-- TOPBAR (shared) -->
-<div class="topbar" style="position:fixed; top:0; width:100%; z-index:200;">
-  <div class="topbar-logo">勤怠打刻</div>
-  <div class="topbar-clock" id="topClock">--:--:--</div>
-  <button class="back-link" id="topBackBtn" onclick="goBack()" style="visibility:hidden;">← 名前選択</button>
-</div>
+<header><h1>🏢 東海商販 出退勤管理</h1></header>
 
-<!-- padding for fixed topbar -->
-<div style="height:56px;"></div>
+<div class="container">
 
-<!-- ======================================================= -->
-<!-- SCREEN: SELECT NAME -->
-<!-- ======================================================= -->
-<div class="screen active" id="screen-select">
-  <div class="select-wrap">
-    <div class="select-heading">
-      <div class="title">打刻する方を選択</div>
-      <div class="sub">お名前をタップしてください</div>
+  <!-- 従業員選択画面 -->
+  <div id="empScreen">
+    <div class="section-title">名前を選んでください</div>
+    <div class="emp-grid" id="empGrid">
+      <div class="loading">読み込み中...</div>
     </div>
-    <div class="name-list" id="nameList">
-      <div class="empty-note">管理者画面で従業員を登録すると<br>ここに名前が表示されます</div>
-    </div>
+    <button class="punch-in-btn" style="width:100%;margin-top:8px;padding:14px;border-radius:12px;" onclick="goToPunch()">タイムカードを開く →</button>
   </div>
-</div>
 
-<!-- ======================================================= -->
-<!-- SCREEN: PUNCH -->
-<!-- ======================================================= -->
-<div class="screen" id="screen-punch">
-  <div class="punch-hero">
-    <div class="punch-name" id="punchName">──</div>
-    <div class="punch-dt" id="punchDt">----/--/-- --:--:--</div>
-  </div>
-  <div class="punch-body">
+  <!-- 打刻画面 -->
+  <div id="punchScreen">
+    <div class="punch-header">
+      <div class="punch-name" id="punchName">-</div>
+      <div class="punch-date" id="punchDate">-</div>
+      <div class="punch-time" id="punchClock">--:--</div>
+    </div>
 
-    <div class="today-card">
-      <div class="today-card-title">本日の記録</div>
-      <div class="today-row">
-        <span class="today-label"><span>🟢</span> 出勤時刻</span>
-        <span class="today-val tv-empty" id="si-in">未打刻</span>
-      </div>
-      <div class="today-row">
-        <span class="today-label"><span>🔴</span> 退勤時刻</span>
-        <span class="today-val tv-empty" id="si-out">未打刻</span>
-      </div>
-      <div class="today-row">
-        <span class="today-label"><span>⏱</span> 勤務時間</span>
-        <span class="today-val tv-empty" id="si-hrs">──</span>
+    <!-- 勤務形態選択 -->
+    <div class="shift-section">
+      <div class="shift-label">勤務形態を選択（出勤時に必ず選んでください）</div>
+      <div class="shift-grid">
+        <button class="shift-btn" onclick="selectShift('day',this)">
+          日<div class="shift-time">8:00〜17:00</div>
+        </button>
+        <button class="shift-btn" onclick="selectShift('s1',this)">
+          ①<div class="shift-time">8:00〜17:00</div>
+        </button>
+        <button class="shift-btn" onclick="selectShift('s2',this)">
+          ②<div class="shift-time">16:00〜翌1:00</div>
+        </button>
+        <button class="shift-btn" onclick="selectShift('s3',this)">
+          ③<div class="shift-time">0:00〜9:00</div>
+        </button>
       </div>
     </div>
 
+    <!-- 打刻ボタン -->
     <div class="punch-btns">
-      <button class="pbtn pbtn-in" id="btnIn" onclick="doPunchIn()">
-        <span class="pbtn-label">出勤</span>
-        <span class="pbtn-sub">タップして記録</span>
+      <button class="punch-in-btn" id="btnIn" onclick="doPunch('in')">
+        <span class="punch-icon">▶</span>
+        出勤
+        <span class="punch-sub">タップして打刻</span>
       </button>
-      <button class="pbtn pbtn-out" id="btnOut" onclick="doPunchOut()">
-        <span class="pbtn-label">退勤</span>
-        <span class="pbtn-sub">タップして記録</span>
+      <button class="punch-out-btn" id="btnOut" onclick="doPunch('out')">
+        <span class="punch-icon">■</span>
+        退勤
+        <span class="punch-sub">タップして打刻</span>
       </button>
     </div>
 
-    <div class="hist-card">
-      <div class="hist-title" id="monthlyTitle">今月の勤怠（20日締め）</div>
-      <div id="monthlyTable"><div style="color:rgba(255,255,255,0.25); font-size:12px; padding:8px 0;">読み込み中...</div></div>
-      <div style="margin-top:10px; padding-top:10px; border-top:1px solid rgba(255,255,255,0.1); display:flex; justify-content:space-between; align-items:center;">
-        <span style="font-size:11px; letter-spacing:2px; color:rgba(255,255,255,0.5);">合計勤務時間</span>
-        <span id="monthlyTotalVal" style="font-family:'JetBrains Mono',monospace; font-size:18px; font-weight:700; color:#7eb8f0;">──</span>
-      </div>
+    <!-- スタンプ -->
+    <div id="stampArea"></div>
+
+    <!-- 今日の記録 -->
+    <div class="today-card" id="todayCard" style="display:none;">
+      <div class="today-row"><span class="today-label">勤務形態</span><span class="today-val" id="todayShift">-</span></div>
+      <div class="today-row"><span class="today-label">出勤</span><span class="today-val" id="todayIn">-</span></div>
+      <div class="today-row"><span class="today-label">退勤</span><span class="today-val" id="todayOut">-</span></div>
+      <div class="today-row"><span class="today-label">合計時間</span><span class="today-val" id="todayTotal">-</span></div>
+      <div class="today-row"><span class="today-label">時間内</span><span class="today-val inner" id="todayInner">-</span></div>
+      <div class="today-row"><span class="today-label">時間外</span><span class="today-val outer" id="todayOuter">-</span></div>
     </div>
 
-    <div class="hist-card" style="margin-top:12px;">
-      <div class="hist-title" id="prevMonthlyTitle">先月の勤怠（20日締め）</div>
-      <div id="prevMonthlyTable"><div style="color:rgba(255,255,255,0.25); font-size:12px; padding:8px 0;">読み込み中...</div></div>
-      <div style="margin-top:10px; padding-top:10px; border-top:1px solid rgba(255,255,255,0.1); display:flex; justify-content:space-between; align-items:center;">
-        <span style="font-size:11px; letter-spacing:2px; color:rgba(255,255,255,0.5);">合計勤務時間</span>
-        <span id="prevMonthlyTotalVal" style="font-family:'JetBrains Mono',monospace; font-size:18px; font-weight:700; color:#7eb8f0;">──</span>
-      </div>
-    </div>
+    <!-- 今月・先月の勤怠一覧 -->
+    <div id="recordsArea"></div>
+
+    <button class="back-btn" onclick="goBack()">← 名前選択に戻る</button>
   </div>
 </div>
-
-<!-- STAMP -->
-<div class="stamp-overlay" id="stampOverlay">
-  <div class="stamp-inner">
-    <div class="stamp-box">
-      <span class="stamp-kanji" id="stampLabel">出勤</span>
-      <div class="stamp-time-lbl" id="stampTime"></div>
-    </div>
-  </div>
-</div>
-
-<!-- EDIT MODAL -->
-<div class="modal-bg" id="editModal">
-  <div class="modal">
-    <h3>打刻を修正</h3>
-    <div class="mf-row">
-      <div>
-        <label class="mf-label">出勤時刻</label>
-        <input type="time" class="mf-input" id="meIn">
-      </div>
-      <div>
-        <label class="mf-label">退勤時刻</label>
-        <input type="time" class="mf-input" id="meOut">
-      </div>
-    </div>
-    <div class="modal-btns">
-      <button class="mbtn mbtn-cancel" onclick="closeModal()">キャンセル</button>
-      <button class="mbtn mbtn-save" onclick="saveEdit()">保存する</button>
-    </div>
-  </div>
-</div>
-
-<div class="toast" id="toast"></div>
 
 <script>
-// ─────────────────────────────────────────
-// GAS API エンドポイント
-// ─────────────────────────────────────────
 const GAS_URL = 'https://script.google.com/macros/s/AKfycbwZg6bsDIl427TEZ8v7ECY1ZfeADqyJRKZYZgiac3M-5cywdRpZr0qGjuTksgpNjtlD/exec';
 
-async function gasCall(data) {
-  // GASのCORS制限のためJSONPライク（no-cors）ではなくURLパラメータでGETを使う
-  const url = GAS_URL + '?payload=' + encodeURIComponent(JSON.stringify(data));
-  const res = await fetch(url, { method: 'GET' });
-  return await res.json();
+const SHIFT_RULES = {
+  'day': { label: '日', innerStart: 8*60,  innerEnd: 17*60 },
+  's1':  { label: '①', innerStart: 8*60,  innerEnd: 17*60 },
+  's2':  { label: '②', innerStart: 16*60, innerEnd: 25*60 },
+  's3':  { label: '③', innerStart: 0*60,  innerEnd: 9*60  }
+};
+
+let employees = [];
+let currentEmp = null;
+let selectedShift = null;
+let clockTimer = null;
+
+async function gasCall(payload) {
+  const url = GAS_URL + '?payload=' + encodeURIComponent(JSON.stringify(payload));
+  const r = await fetch(url);
+  return r.json();
 }
 
-// ─────────────────────────────────────────
-// 状態管理
-// ─────────────────────────────────────────
-let employees = [];
-let todayRecords = {}; // { empId: { in, out } }
-let settings = { manager: { last:'', first:'' }, emailSettings: { addresses:[], senderName:'' } };
-let currentEmpId = null;
-let editEmpId = null;
-let editDateKey = null;
+// ── 初期化 ────────────────────────────────────────────────
+window.addEventListener('load', async () => {
+  const res = await gasCall({ action: 'getEmployees' });
+  if (res.ok) employees = res.employees;
+  renderEmpGrid();
 
-// ─────────────────────────────────────────
-// CLOCK
-// ─────────────────────────────────────────
-const pad2 = n => String(n).padStart(2,'0');
-const DAYS = ['日','月','火','水','木','金','土'];
+  // URLパラメータで直接従業員指定
+  const params = new URLSearchParams(location.search);
+  const empId  = params.get('emp');
+  if (empId) {
+    const emp = employees.find(e => e.id === empId);
+    if (emp) openPunch(emp);
+  }
+});
+
+function renderEmpGrid() {
+  const grid = document.getElementById('empGrid');
+  if (!employees.length) {
+    grid.innerHTML = '<p style="color:var(--muted);font-size:14px;grid-column:span 2;padding:16px 0;">管理者画面で従業員を登録してください</p>';
+    return;
+  }
+  grid.innerHTML = employees.map(e => `
+    <button class="emp-btn" onclick="selectEmp('${e.id}',this)">
+      ${e.last} ${e.first}
+    </button>
+  `).join('');
+}
+
+function selectEmp(id, el) {
+  document.querySelectorAll('.emp-btn').forEach(b => b.classList.remove('selected'));
+  el.classList.add('selected');
+  currentEmp = employees.find(e => e.id === id);
+}
+
+function goToPunch() {
+  if (!currentEmp) { alert('名前を選んでください'); return; }
+  openPunch(currentEmp);
+}
+
+async function openPunch(emp) {
+  currentEmp = emp;
+  document.getElementById('empScreen').style.display  = 'none';
+  document.getElementById('punchScreen').style.display = 'block';
+  document.getElementById('punchName').textContent = emp.last + ' ' + emp.first;
+
+  startClock();
+  await loadTodayRecord();
+  await loadRecords();
+}
+
+function goBack() {
+  document.getElementById('punchScreen').style.display = 'none';
+  document.getElementById('empScreen').style.display   = 'block';
+  if (clockTimer) clearInterval(clockTimer);
+  selectedShift = null;
+  document.querySelectorAll('.shift-btn').forEach(b => b.classList.remove('selected'));
+  document.getElementById('stampArea').innerHTML = '';
+}
+
+// ── 時計 ────────────────────────────────────────────────
+function startClock() {
+  updateClock();
+  if (clockTimer) clearInterval(clockTimer);
+  clockTimer = setInterval(updateClock, 1000);
+}
 
 function updateClock() {
   const now = new Date();
-  const t = `${pad2(now.getHours())}:${pad2(now.getMinutes())}:${pad2(now.getSeconds())}`;
-  document.getElementById('topClock').textContent = t;
-  const dt = document.getElementById('punchDt');
-  if (dt) dt.textContent = `${now.getFullYear()}/${pad2(now.getMonth()+1)}/${pad2(now.getDate())}（${DAYS[now.getDay()]}）${t}`;
-}
-setInterval(updateClock, 1000);
-updateClock();
-
-function todayKey() {
-  const n = new Date();
-  return `${n.getFullYear()}-${pad2(n.getMonth()+1)}-${pad2(n.getDate())}`;
+  const dateStr = now.getFullYear() + '年' + (now.getMonth()+1) + '月' + now.getDate() + '日（' + ['日','月','火','水','木','金','土'][now.getDay()] + '）';
+  document.getElementById('punchDate').textContent = dateStr;
+  document.getElementById('punchClock').textContent =
+    String(now.getHours()).padStart(2,'0') + ':' + String(now.getMinutes()).padStart(2,'0') + ':' + String(now.getSeconds()).padStart(2,'0');
 }
 
-function calcHours(a, b) {
-  if (!a || !b) return null;
-  const [ah,am] = a.split(':').map(Number);
-  const [bh,bm] = b.split(':').map(Number);
-  const d = (bh*60+bm)-(ah*60+am);
-  if (d < 0) return null;
-  return `${Math.floor(d/60)}時間${d%60}分`;
+// ── 勤務形態選択 ──────────────────────────────────────────
+function selectShift(key, el) {
+  document.querySelectorAll('.shift-btn').forEach(b => b.classList.remove('selected'));
+  el.classList.add('selected');
+  selectedShift = key;
 }
 
-// ─────────────────────────────────────────
-// 初期データ読み込み
-// ─────────────────────────────────────────
-async function loadInitialData() {
-  showLoading(true);
-  try {
-    const [empRes, recRes, setRes] = await Promise.all([
-      gasCall({ action: 'getEmployees' }),
-      gasCall({ action: 'getRecords', startDate: todayKey(), endDate: todayKey() }),
-      gasCall({ action: 'getSettings' })
-    ]);
-    if (empRes.ok) employees = empRes.employees || [];
-    if (recRes.ok) {
-      // 今日の記録だけキャッシュ
-      Object.keys(recRes.records).forEach(empId => {
-        todayRecords[empId] = recRes.records[empId][todayKey()] || null;
-      });
-    }
-    if (setRes.ok) settings = setRes.settings;
-  } catch(e) {
-    showToast('データの読み込みに失敗しました', 'err');
-  }
-  showLoading(false);
-}
-
-function showLoading(on) {
-  const list = document.getElementById('nameList');
-  if (on) list.innerHTML = '<div class="empty-note">読み込み中...</div>';
-}
-
-// ─────────────────────────────────────────
-// SCREENS
-// ─────────────────────────────────────────
-function showScreen(name) {
-  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
-  document.getElementById(`screen-${name}`).classList.add('active');
-  const backBtn = document.getElementById('topBackBtn');
-  backBtn.style.visibility = name === 'punch' ? 'visible' : 'hidden';
-  if (name === 'select') renderNameList();
-}
-
-function goBack() { showScreen('select'); }
-
-// ─────────────────────────────────────────
-// NAME LIST
-// ─────────────────────────────────────────
-function renderNameList() {
-  const list = document.getElementById('nameList');
-  if (employees.length === 0) {
-    list.innerHTML = '<div class="empty-note">管理者画面で従業員を登録すると<br>ここに名前が表示されます</div>';
+// ── 打刻 ──────────────────────────────────────────────────
+async function doPunch(type) {
+  if (type === 'in' && !selectedShift) {
+    alert('勤務形態（日・①・②・③）を先に選んでください');
     return;
   }
-  list.innerHTML = employees.map(e =>
-    `<button class="name-btn" onclick="openPunch('${e.id}')">
-      <span>${e.last} ${e.first}</span>
-      <span class="arrow">›</span>
-    </button>`
-  ).join('');
-}
 
-// ─────────────────────────────────────────
-// PUNCH SCREEN
-// ─────────────────────────────────────────
-async function openPunch(empId) {
-  const emp = employees.find(e => e.id === empId);
-  if (!emp) return;
-  currentEmpId = empId;
-  document.getElementById('punchName').textContent = `${emp.last} ${emp.first}`;
-  showScreen('punch');
-  // 今日の記録をスプレッドシートから最新取得
+  const now = new Date();
+  const dateKey = now.getFullYear() + '-' + String(now.getMonth()+1).padStart(2,'0') + '-' + String(now.getDate()).padStart(2,'0');
+  const time = String(now.getHours()).padStart(2,'0') + ':' + String(now.getMinutes()).padStart(2,'0');
+
+  document.getElementById('btnIn').disabled  = true;
+  document.getElementById('btnOut').disabled = true;
+
   try {
-    const res = await gasCall({ action: 'getRecords', startDate: todayKey(), endDate: todayKey() });
+    const res = await gasCall({
+      action: 'punch',
+      empId: currentEmp.id,
+      type,
+      time,
+      dateKey,
+      shift: selectedShift || 'day'
+    });
+
     if (res.ok) {
-      Object.keys(res.records).forEach(id => {
-        todayRecords[id] = res.records[id][todayKey()] || null;
-      });
+      const label = type === 'in' ? '出勤' : '退勤';
+      const cls   = type === 'in' ? 'stamp-in' : 'stamp-out';
+      document.getElementById('stampArea').innerHTML =
+        `<div class="stamp ${cls}">✓ ${time} ${label}打刻しました</div>`;
+      await loadTodayRecord();
+      await loadRecords();
+    } else {
+      document.getElementById('stampArea').innerHTML =
+        `<div class="stamp stamp-err">エラー: ${res.error || '通信失敗'}</div>`;
     }
-  } catch(e) {}
-  renderPunchScreen();
-  await loadHistory(empId);
-}
-
-function getTodayRec(empId) { return todayRecords[empId] || null; }
-
-function renderPunchScreen() {
-  if (!currentEmpId) return;
-  const rec = getTodayRec(currentEmpId);
-  const inEl = document.getElementById('si-in');
-  const outEl = document.getElementById('si-out');
-  const hrsEl = document.getElementById('si-hrs');
-  const btnIn = document.getElementById('btnIn');
-  const btnOut = document.getElementById('btnOut');
-
-  btnIn.querySelectorAll('.pbtn-done-badge').forEach(e => e.remove());
-  btnOut.querySelectorAll('.pbtn-done-badge').forEach(e => e.remove());
-
-  if (rec?.in) {
-    inEl.textContent = rec.in; inEl.className = 'today-val tv-in';
-    btnIn.disabled = true;
-    btnIn.querySelector('.pbtn-sub').textContent = '打刻済み';
-    const b = document.createElement('span'); b.className = 'pbtn-done-badge'; b.textContent = '✓ 済'; btnIn.appendChild(b);
-  } else {
-    inEl.textContent = '未打刻'; inEl.className = 'today-val tv-empty';
-    btnIn.disabled = false;
-    btnIn.querySelector('.pbtn-sub').textContent = 'タップして記録';
+  } catch(e) {
+    document.getElementById('stampArea').innerHTML =
+      `<div class="stamp stamp-err">通信エラーが発生しました</div>`;
   }
-  if (rec?.out) {
-    outEl.textContent = rec.out; outEl.className = 'today-val tv-out';
-    btnOut.disabled = true;
-    btnOut.querySelector('.pbtn-sub').textContent = '打刻済み';
-    const b = document.createElement('span'); b.className = 'pbtn-done-badge'; b.textContent = '✓ 済'; btnOut.appendChild(b);
-  } else {
-    outEl.textContent = '未打刻'; outEl.className = 'today-val tv-empty';
-    btnOut.disabled = false;
-    btnOut.querySelector('.pbtn-sub').textContent = 'タップして記録';
-  }
-  if (rec?.in && rec?.out) {
-    const h = calcHours(rec.in, rec.out);
-    hrsEl.textContent = h || '──';
-    hrsEl.className = h ? 'today-val tv-hrs' : 'today-val tv-empty';
-  } else {
-    hrsEl.textContent = '──'; hrsEl.className = 'today-val tv-empty';
-  }
+
+  document.getElementById('btnIn').disabled  = false;
+  document.getElementById('btnOut').disabled = false;
 }
 
-async function doPunchIn() {
-  if (!currentEmpId) return;
-  const rec = getTodayRec(currentEmpId);
-  if (rec?.in) { showToast('既に出勤打刻済みです', 'err'); return; }
-  const t = `${pad2(new Date().getHours())}:${pad2(new Date().getMinutes())}`;
-  const key = todayKey();
-
-  // 即座にUI更新
-  if (!todayRecords[currentEmpId]) todayRecords[currentEmpId] = {};
-  todayRecords[currentEmpId].in = t;
-  showStamp('出勤', t);
-  renderPunchScreen();
-  showToast(`出勤 ${t} を記録しました`, 'ok');
-
-  // スプレッドシートに保存
-  try {
-    await gasCall({ action: 'punch', empId: currentEmpId, type: 'in', time: t, dateKey: key });
-  } catch(e) { showToast('保存に失敗しました。再度お試しください', 'err'); }
-
-  // メール送信
-  const emp = employees.find(e => e.id === currentEmpId);
-  if (emp) sendPunchEmail(emp, key, todayRecords[currentEmpId], 'in');
-  await loadHistory(currentEmpId);
-}
-
-async function doPunchOut() {
-  if (!currentEmpId) return;
-  const rec = getTodayRec(currentEmpId);
-  if (!rec?.in) { showToast('先に出勤打刻をしてください', 'err'); return; }
-  if (rec?.out) { showToast('既に退勤打刻済みです', 'err'); return; }
-  const t = `${pad2(new Date().getHours())}:${pad2(new Date().getMinutes())}`;
-  const key = todayKey();
-
-  todayRecords[currentEmpId].out = t;
-  showStamp('退勤', t);
-  renderPunchScreen();
-  showToast(`退勤 ${t} を記録しました`, 'ok');
-
-  try {
-    await gasCall({ action: 'punch', empId: currentEmpId, type: 'out', time: t, dateKey: key });
-  } catch(e) { showToast('保存に失敗しました。再度お試しください', 'err'); }
-
-  const emp = employees.find(e => e.id === currentEmpId);
-  if (emp) sendPunchEmail(emp, key, todayRecords[currentEmpId], 'out');
-  await loadHistory(currentEmpId);
-}
-
-// ─────────────────────────────────────────
-// HISTORY（直近7日をGASから取得）
-// ─────────────────────────────────────────
-let historyCache = {};
-
-// 20日締めの期間を取得
-function getMonthlyPeriod() {
+// ── 今日の記録読み込み ────────────────────────────────────
+async function loadTodayRecord() {
   const now = new Date();
-  const pad = n => String(n).padStart(2,'0');
-  let startYear, startMonth, endYear, endMonth;
-  if (now.getDate() >= 21) {
-    startYear = now.getFullYear();
-    startMonth = now.getMonth() + 1;
-    endMonth = now.getMonth() + 2;
-    endYear = now.getFullYear();
-    if (endMonth > 12) { endMonth = 1; endYear++; }
-  } else {
-    startMonth = now.getMonth();
-    startYear = now.getFullYear();
-    if (startMonth === 0) { startMonth = 12; startYear--; }
-    endYear = now.getFullYear();
-    endMonth = now.getMonth() + 1;
+  const dateKey = now.getFullYear() + '-' + String(now.getMonth()+1).padStart(2,'0') + '-' + String(now.getDate()).padStart(2,'0');
+  const res = await gasCall({ action: 'getRecords', startDate: dateKey, endDate: dateKey });
+  if (!res.ok) return;
+
+  const rec = res.records[currentEmp.id] && res.records[currentEmp.id][dateKey];
+  if (rec) {
+    const shiftLabel = rec.shift && SHIFT_RULES[rec.shift] ? SHIFT_RULES[rec.shift].label : '-';
+    document.getElementById('todayCard').style.display = 'block';
+    document.getElementById('todayShift').textContent = shiftLabel;
+    document.getElementById('todayIn').textContent    = rec.in  || '-';
+    document.getElementById('todayOut').textContent   = rec.out || '-';
+    document.getElementById('todayTotal').textContent = rec.total || '-';
+    document.getElementById('todayInner').textContent = rec.inner || '-';
+    document.getElementById('todayOuter').textContent = rec.outer || '-';
   }
-  return {
-    startDate: startYear + '-' + pad(startMonth) + '-21',
-    endDate: endYear + '-' + pad(endMonth) + '-20'
-  };
 }
 
-// 先月の20日締め期間を取得
-function getPrevMonthlyPeriod() {
+// ── 勤怠一覧 ────────────────────────────────────────────
+async function loadRecords() {
+  const area = document.getElementById('recordsArea');
+  area.innerHTML = '<div class="loading">勤怠記録を読み込み中...</div>';
+
   const now = new Date();
-  const pad = n => String(n).padStart(2,'0');
-  const cur = getMonthlyPeriod();
-  // 今月の開始日の前日から1ヶ月前
-  const curStart = new Date(cur.startDate + 'T00:00:00');
-  const prevEnd = new Date(curStart);
-  prevEnd.setDate(prevEnd.getDate() - 1); // 今月開始日の前日 = 先月20日
-  const prevStart = new Date(prevEnd);
-  prevStart.setDate(1); // まず1日に
-  prevStart.setDate(prevStart.getDate() - 10); // 前月21日へ
-  // 前月21日を正確に計算
-  let sy = prevEnd.getFullYear();
-  let sm = prevEnd.getMonth(); // 先月
-  if (sm === 0) { sm = 12; sy--; }
-  return {
-    startDate: sy + '-' + pad(sm) + '-21',
-    endDate: prevEnd.getFullYear() + '-' + pad2(prevEnd.getMonth()+1) + '-' + pad2(prevEnd.getDate())
-  };
+  const periods = getCurrentAndPrevPeriod(now);
+
+  let html = '';
+  for (const p of periods) {
+    const res = await gasCall({ action: 'getRecords', startDate: p.start, endDate: p.end });
+    const recs = (res.ok && res.records[currentEmp.id]) ? res.records[currentEmp.id] : {};
+    html += buildRecordTable(p.label, p.start, p.end, recs);
+  }
+  area.innerHTML = html || '<div class="loading">記録なし</div>';
 }
 
-let monthlyCache = {};
+function getCurrentAndPrevPeriod(now) {
+  const y = now.getFullYear(), m = now.getMonth()+1, d = now.getDate();
+  let curYear, curMonth, prevYear, prevMonth;
+  if (d >= 21) {
+    curMonth = m + 1 > 12 ? 1 : m + 1;
+    curYear  = m + 1 > 12 ? y + 1 : y;
+  } else {
+    curMonth = m;
+    curYear  = y;
+  }
+  prevMonth = curMonth - 1 < 1 ? 12 : curMonth - 1;
+  prevYear  = curMonth - 1 < 1 ? curYear - 1 : curYear;
 
-let prevMonthlyCache = {};
+  const fmt = (y,m) => y + '-' + String(m).padStart(2,'0');
+  const curStart  = fmt(prevYear, prevMonth) + '-21';
+  const curEnd    = fmt(curYear, curMonth)   + '-20';
+  const prevStart = fmt(prevMonth-1<1?prevYear-1:prevYear, prevMonth-1<1?12:prevMonth-1) + '-21';
+  const prevEnd   = fmt(prevYear, prevMonth) + '-20';
 
-async function loadHistory(empId) {
-  // 今月（20日締め）
-  const period = getMonthlyPeriod();
-  try {
-    const res = await gasCall({ action: 'getRecords', startDate: period.startDate, endDate: period.endDate });
-    if (res.ok) monthlyCache = res.records[empId] || {};
-  } catch(e) {}
-  renderMonthly(period, 'monthlyTitle', 'monthlyTable', 'monthlyTotalVal', monthlyCache);
-
-  // 先月（20日締め）
-  const prevPeriod = getPrevMonthlyPeriod();
-  try {
-    const res2 = await gasCall({ action: 'getRecords', startDate: prevPeriod.startDate, endDate: prevPeriod.endDate });
-    if (res2.ok) prevMonthlyCache = res2.records[empId] || {};
-  } catch(e) {}
-  renderMonthly(prevPeriod, 'prevMonthlyTitle', 'prevMonthlyTable', 'prevMonthlyTotalVal', prevMonthlyCache);
+  return [
+    { label: '今月（' + curStart + ' ～ ' + curEnd + '）', start: curStart, end: curEnd },
+    { label: '先月（' + prevStart + ' ～ ' + prevEnd + '）', start: prevStart, end: prevEnd }
+  ];
 }
 
-function renderMonthly(period, titleId, tableId, totalId, cache) {
-  const container = document.getElementById(tableId);
-  const titleEl = document.getElementById(titleId);
-  const totalEl = document.getElementById(totalId);
-
-  // タイトル更新
-  if (titleEl) {
-    titleEl.textContent = period.startDate.slice(5) + ' 〜 ' + period.endDate.slice(5) + '（20日締め）';
+function buildRecordTable(label, startDate, endDate, recs) {
+  const days = [];
+  const sd = new Date(startDate + 'T00:00:00');
+  const ed = new Date(endDate   + 'T00:00:00');
+  for (let d = new Date(sd); d <= ed; d.setDate(d.getDate()+1)) {
+    days.push(new Date(d));
   }
 
-  const dates = [];
-  let cur = new Date(period.startDate + 'T00:00:00');
-  const end = new Date(period.endDate + 'T00:00:00');
-  while (cur <= end) {
-    dates.push(cur.getFullYear() + '-' + pad2(cur.getMonth()+1) + '-' + pad2(cur.getDate()));
-    cur.setDate(cur.getDate() + 1);
-  }
+  const DOW = ['日','月','火','水','木','金','土'];
+  let totalMin = 0, innerMin = 0, outerMin = 0;
 
-  // データがある日だけ表示
-  const activeDates = dates.filter(dk => cache[dk] && (cache[dk].in || cache[dk].out));
+  let rows = '';
+  days.forEach(d => {
+    const key = d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+    const r   = recs[key] || {};
+    const dow = d.getDay();
+    const cls = dow === 0 ? 'weekend' : dow === 6 ? 'saturday' : '';
+    const label2 = String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+    const shiftLabel = r.shift && SHIFT_RULES[r.shift] ? SHIFT_RULES[r.shift].label : '';
 
-  if (!activeDates.length) {
-    container.innerHTML = '<div style="color:rgba(255,255,255,0.25); font-size:12px; padding:8px 0;">まだ記録がありません</div>';
-    if (totalEl) totalEl.textContent = '0時間0分';
-    return;
-  }
+    if (r.total) totalMin += strToMin(r.total);
+    if (r.inner) innerMin += strToMin(r.inner);
+    if (r.outer) outerMin += strToMin(r.outer);
 
-  let totalMins = 0;
-  const DAYS = ['日','月','火','水','木','金','土'];
+    rows += `<tr class="${cls}">
+      <td>${label2}</td><td>${DOW[dow]}</td>
+      <td>${shiftLabel}</td>
+      <td>${r.in||''}</td><td>${r.out||''}</td>
+      <td>${r.total||''}</td>
+      <td class="td-inner">${r.inner||''}</td>
+      <td class="td-outer">${r.outer||''}</td>
+    </tr>`;
+  });
 
-  container.innerHTML = activeDates.map(dk => {
-    const r = cache[dk] || {};
-    const h = r.in && r.out ? calcHours(r.in, r.out) : null;
-    if (h) {
-      const [hh, mm] = h.replace('時間', ':').replace('分', '').split(':').map(Number);
-      totalMins += hh * 60 + mm;
-    }
-    const d = new Date(dk + 'T00:00:00');
-    const dow = DAYS[d.getDay()];
-    return '<div class="hist-row">' +
-      '<span class="hist-date">' + dk.slice(5) + '(' + dow + ')</span>' +
-      '<div class="hist-times">' +
-        '<span class="ht-in">' + (r.in||'--') + '</span>' +
-        '<span class="ht-sep">→</span>' +
-        '<span class="ht-out">' + (r.out||'--') + '</span>' +
-        (h ? '<span class="ht-hrs">(' + h + ')</span>' : '') +
-      '</div>' +
-    '</div>';
-    // 修正ボタンなし（管理者のみ修正可能）
-  }).join('');
-
-  if (totalEl) {
-    const th = Math.floor(totalMins / 60);
-    const tm = totalMins % 60;
-    totalEl.textContent = th + '時間' + tm + '分';
-  }
-}
-
-function renderHistory() {
-  const container = document.getElementById('recentHist');
-  const sorted = Object.keys(historyCache).sort().reverse().slice(0, 7);
-  if (!sorted.length) {
-    container.innerHTML = '<div style="color:rgba(255,255,255,0.25); font-size:12px; padding:8px 0;">まだ記録がありません</div>';
-    return;
-  }
-  container.innerHTML = sorted.map(dk => {
-    const r = historyCache[dk];
-    const h = r.in && r.out ? calcHours(r.in, r.out) : null;
-    return `<div class="hist-row">
-      <span class="hist-date">${dk.slice(5)}</span>
-      <div class="hist-times">
-        <span class="ht-in">${r.in||'--'}</span>
-        <span class="ht-sep">→</span>
-        <span class="ht-out">${r.out||'--'}</span>
-        ${h ? `<span class="ht-hrs">(${h})</span>` : ''}
+  return `
+    <div class="record-card">
+      <h3>📅 ${label}</h3>
+      <div style="overflow-x:auto;">
+        <table class="rec-table">
+          <thead><tr>
+            <th>日付</th><th>曜</th><th>形態</th>
+            <th>出勤</th><th>退勤</th>
+            <th>合計</th><th style="color:#90caf9;">時間内</th><th style="color:#ffcc80;">時間外</th>
+          </tr></thead>
+          <tbody>
+            ${rows}
+            <tr class="total-row">
+              <td colspan="5" style="text-align:right;">合計</td>
+              <td>${minToStr(totalMin)}</td>
+              <td>${minToStr(innerMin)}</td>
+              <td>${minToStr(outerMin)}</td>
+            </tr>
+          </tbody>
+        </table>
       </div>
-      <button class="edit-btn" onclick="openEditModal('${currentEmpId}','${dk}')">修正</button>
     </div>`;
-  }).join('');
 }
 
-// ─────────────────────────────────────────
-// EDIT MODAL
-// ─────────────────────────────────────────
-function openEditModal(empId, dk) {
-  editEmpId = empId; editDateKey = dk;
-  const r = historyCache[dk] || {};
-  document.getElementById('meIn').value = r.in || '';
-  document.getElementById('meOut').value = r.out || '';
-  document.getElementById('editModal').classList.add('show');
-}
-function closeModal() { document.getElementById('editModal').classList.remove('show'); }
-
-async function saveEdit() {
-  if (!editEmpId || !editDateKey) return;
-  const inT = document.getElementById('meIn').value;
-  const outT = document.getElementById('meOut').value;
-  try {
-    await gasCall({ action: 'saveRecord', empId: editEmpId, dateKey: editDateKey, inTime: inT, outTime: outT });
-    if (editDateKey === todayKey()) {
-      if (!todayRecords[editEmpId]) todayRecords[editEmpId] = {};
-      todayRecords[editEmpId] = { in: inT, out: outT };
-      renderPunchScreen();
-    }
-    closeModal();
-    await loadHistory(editEmpId);
-    showToast('修正しました', 'ok');
-  } catch(e) { showToast('修正に失敗しました', 'err'); }
+function strToMin(s) {
+  if (!s) return 0;
+  const hMatch = s.match(/(\d+)時間/);
+  const mMatch = s.match(/(\d+)分/);
+  return (hMatch ? parseInt(hMatch[1]) * 60 : 0) + (mMatch ? parseInt(mMatch[1]) : 0);
 }
 
-// ─────────────────────────────────────────
-// STAMP
-// ─────────────────────────────────────────
-function showStamp(label, time) {
-  const ov = document.getElementById('stampOverlay');
-  document.getElementById('stampLabel').textContent = label;
-  document.getElementById('stampTime').textContent = time;
-  ov.classList.add('show');
-  setTimeout(() => ov.classList.remove('show'), 1600);
+function minToStr(m) {
+  if (m <= 0) return '0時間0分';
+  return Math.floor(m/60) + '時間' + (m%60) + '分';
 }
-
-// ─────────────────────────────────────────
-// EMAIL (Anthropic API + Gmail MCP)
-// ─────────────────────────────────────────
-async function sendPunchEmail(emp, dateKey, rec, type) {
-  const addrs = settings.emailSettings?.addresses || [];
-  if (!addrs.length) return;
-  const mgrName = (settings.manager?.last || settings.manager?.first)
-    ? `${settings.manager.last} ${settings.manager.first}`.trim() : '管理者';
-  const sender = settings.emailSettings?.senderName || '勤怠管理システム';
-  const fullName = `${emp.last} ${emp.first}`;
-  const isIn = type === 'in';
-  const labelJP = isIn ? '出勤' : '退勤';
-  const punchTime = isIn ? rec.in : rec.out;
-  const hours = rec.in && rec.out ? calcHours(rec.in, rec.out) : null;
-  const subject = `【${labelJP}報告】${fullName} - ${dateKey} ${punchTime}`;
-  const body = [
-    `${sender}から自動送信されました。`,
-    `担当管理者：${mgrName} 様`,
-    '────────────────',
-    `従業員名：${fullName}`,
-    `日　　付：${dateKey}`,
-    `${labelJP}時刻：${punchTime}`,
-    isIn ? '退勤時刻：（未打刻）' : `出勤時刻：${rec.in||'未記録'}`,
-    ...(!isIn && hours ? [`勤務時間：${hours}`] : []),
-    '────────────────',
-    '※開封確認が設定されています。',
-    '※このメールは自動送信です。'
-  ].join('\n');
-
-  for (const addr of addrs) {
-    try {
-      await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          model: 'claude-sonnet-4-20250514',
-          max_tokens: 500,
-          messages: [{ role: 'user', content: `以下の内容でGmailからメールを送信してください。\n宛先：${addr}\n件名：${subject}\n本文：\n${body}\n\n重要：Disposition-Notification-To: ${addr} ヘッダーを追加して開封確認を有効にしてください。` }],
-          mcp_servers: [{ type: 'url', url: 'https://gmail.mcp.claude.com/mcp', name: 'gmail-mcp' }]
-        })
-      });
-    } catch(e) { console.warn('メール送信エラー', e); }
-  }
-}
-
-// ─────────────────────────────────────────
-// TOAST
-// ─────────────────────────────────────────
-let toastTimer;
-function showToast(msg, type='') {
-  const t = document.getElementById('toast');
-  t.textContent = msg; t.className = `toast ${type} show`;
-  clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => t.classList.remove('show'), 3000);
-}
-
-// ─────────────────────────────────────────
-// 起動
-// ─────────────────────────────────────────
-window.addEventListener('load', async () => {
-  await loadInitialData();
-  renderNameList();
-  // QRコードからの直接アクセス
-  const p = new URLSearchParams(location.search);
-  const empId = p.get('emp');
-  if (empId && employees.find(e => e.id === empId)) openPunch(empId);
-});
 </script>
 </body>
 </html>
