@@ -496,12 +496,24 @@ function downloadCsv() {
   const lightBlue= 'FF90CAF9';
   const lightOrg = 'FFFFCC80';
 
+  const borderAll = {
+    top:    {style:'thin', color:{rgb:'FF888FAA'}},
+    bottom: {style:'thin', color:{rgb:'FF888FAA'}},
+    left:   {style:'thin', color:{rgb:'FF888FAA'}},
+    right:  {style:'thin', color:{rgb:'FF888FAA'}}
+  };
+  const borderAllDark = {
+    top:    {style:'thin', color:{rgb:'FF334466'}},
+    bottom: {style:'thin', color:{rgb:'FF334466'}},
+    left:   {style:'thin', color:{rgb:'FF334466'}},
+    right:  {style:'thin', color:{rgb:'FF334466'}}
+  };
   function hStyle(bg, fg) {
     return {
       font: { bold:true, color:{ rgb: fg||'FFFFFFFF' } },
       fill: { fgColor:{ rgb: bg||navyHex } },
       alignment: { horizontal:'center', vertical:'center', wrapText:true },
-      border: { bottom:{style:'thin',color:{rgb:'FFD0D7E3'}}, right:{style:'thin',color:{rgb:'FFD0D7E3'}} }
+      border: borderAllDark
     };
   }
   function dStyle(fg, bg) {
@@ -509,7 +521,7 @@ function downloadCsv() {
       font: fg ? { color:{rgb:fg} } : {},
       fill: bg ? { fgColor:{rgb:bg} } : {},
       alignment: { horizontal:'center', vertical:'center' },
-      border: { bottom:{style:'thin',color:{rgb:'FFD0D7E3'}}, right:{style:'thin',color:{rgb:'FFD0D7E3'}} }
+      border: borderAll
     };
   }
   function tStyle(fg) {
@@ -517,7 +529,7 @@ function downloadCsv() {
       font: { bold:true, color:{rgb: fg||'FFFFFFFF'} },
       fill: { fgColor:{rgb:totalBg} },
       alignment: { horizontal:'center', vertical:'center' },
-      border: { right:{style:'thin',color:{rgb:'FF334466'}} }
+      border: borderAllDark
     };
   }
   function setCell(r, c, v, s) {
