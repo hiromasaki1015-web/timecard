@@ -198,7 +198,7 @@ tr:hover td{background:#f0f4ff;}
     <!-- メール設定タブ -->
     <div id="panel-mail" class="panel">
       <div class="card">
-        <h2>メール送信先（最大3件）</h2>
+        <h2>メール送信先（最大5件）</h2>
         <p style="font-size:13px;color:var(--muted);margin-bottom:14px;">出勤・退勤打刻時に自動送信されます。</p>
         <div class="form-row">
           <input type="email" id="mailInput" placeholder="example@email.com" style="flex:1">
@@ -736,7 +736,7 @@ function renderMailList() {
 function addMailAddr() {
   const v = document.getElementById('mailInput').value.trim();
   if (!v || !v.includes('@')) { showMsg('mailMsg','有効なメールアドレスを入力してください','err'); return; }
-  if (mailAddrs.length >= 3) { showMsg('mailMsg','最大3件まで登録できます','err'); return; }
+  if (mailAddrs.length >= 5) { showMsg('mailMsg','最大5件まで登録できます','err'); return; }
   mailAddrs.push(v);
   document.getElementById('mailInput').value = '';
   renderMailList();
