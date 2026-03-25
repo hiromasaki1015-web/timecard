@@ -76,6 +76,14 @@ header h1{font-size:17px;font-weight:700;letter-spacing:.05em;}
 .punch-icon{font-size:26px;}
 .punch-sub{font-size:12px;opacity:.85;}
 
+.lock-note{
+  margin-top:8px;
+  font-size:12px;
+  color:var(--muted);
+  text-align:center;
+  line-height:1.5;
+}
+
 /* 今日の記録 */
 .today-card{
   background:var(--white);border-radius:14px;padding:16px;
@@ -177,6 +185,8 @@ header h1{font-size:17px;font-weight:700;letter-spacing:.05em;}
       </button>
     </div>
 
+    <div class="lock-note" id="lockNote"></div>
+
     <!-- スタンプ -->
     <div id="stampArea"></div>
 
@@ -199,6 +209,8 @@ header h1{font-size:17px;font-weight:700;letter-spacing:.05em;}
 
 <script>
 const GAS_URL = 'https://script.google.com/macros/s/AKfycbwZg6bsDIl427TEZ8v7ECY1ZfeADqyJRKZYZgiac3M-5cywdRpZr0qGjuTksgpNjtlD/exec';
+const LOCK_HOURS = 3;
+const LOCK_MS = LOCK_HOURS * 60 * 60 * 1000;
 
 const SHIFT_RULES = {
   'day': { label: '日', innerStart: 8*60,  innerEnd: 17*60 },
@@ -211,6 +223,7 @@ let employees = [];
 let currentEmp = null;
 let selectedShift = null;
 let clockTimer = null;
+let lockTimer = null;
 
 async function gasCall(payload) {
   const url = GAS_URL + '?payload=' + encodeURIComponent(JSON.stringify(payload));
@@ -224,7 +237,6 @@ window.addEventListener('load', async () => {
   if (res.ok) employees = res.employees;
   renderEmpGrid();
 
-  // URLパラメータで直接従業員指定
   const params = new URLSearchParams(location.search);
   const empId  = params.get('emp');
   if (empId) {
@@ -253,28 +265,35 @@ function selectEmp(id, el) {
 }
 
 function goToPunch() {
-  if (!currentEmp) { alert('名前を選んでください'); return; }
+  if (!currentEmp) {
+    alert('名前を選んでください');
+    return;
+  }
   openPunch(currentEmp);
 }
 
 async function openPunch(emp) {
   currentEmp = emp;
-  document.getElementById('empScreen').style.display  = 'none';
+  document.getElementById('empScreen').style.display = 'none';
   document.getElementById('punchScreen').style.display = 'block';
   document.getElementById('punchName').textContent = emp.last + ' ' + emp.first;
 
   startClock();
+  startLockWatcher();
   await loadTodayRecord();
   await loadRecords();
+  updateButtonLocks();
 }
 
 function goBack() {
   document.getElementById('punchScreen').style.display = 'none';
-  document.getElementById('empScreen').style.display   = 'block';
+  document.getElementById('empScreen').style.display = 'block';
   if (clockTimer) clearInterval(clockTimer);
+  if (lockTimer) clearInterval(lockTimer);
   selectedShift = null;
   document.querySelectorAll('.shift-btn').forEach(b => b.classList.remove('selected'));
   document.getElementById('stampArea').innerHTML = '';
+  document.getElementById('lockNote').textContent = '';
 }
 
 // ── 時計 ────────────────────────────────────────────────
@@ -286,10 +305,12 @@ function startClock() {
 
 function updateClock() {
   const now = new Date();
-  const dateStr = now.getFullYear() + '年' + (now.getMonth()+1) + '月' + now.getDate() + '日（' + ['日','月','火','水','木','金','土'][now.getDay()] + '）';
+  const dateStr = now.getFullYear() + '年' + (now.getMonth() + 1) + '月' + now.getDate() + '日（' + ['日','月','火','水','木','金','土'][now.getDay()] + '）';
   document.getElementById('punchDate').textContent = dateStr;
   document.getElementById('punchClock').textContent =
-    String(now.getHours()).padStart(2,'0') + ':' + String(now.getMinutes()).padStart(2,'0') + ':' + String(now.getSeconds()).padStart(2,'0');
+    String(now.getHours()).padStart(2,'0') + ':' +
+    String(now.getMinutes()).padStart(2,'0') + ':' +
+    String(now.getSeconds()).padStart(2,'0');
 }
 
 // ── 勤務形態選択 ──────────────────────────────────────────
@@ -299,6 +320,77 @@ function selectShift(key, el) {
   selectedShift = key;
 }
 
+// ── ロック管理 ────────────────────────────────────────────
+function getInLockKey() {
+  return currentEmp ? 'lock_in_' + currentEmp.id : '';
+}
+
+function getOutLockKey() {
+  return currentEmp ? 'lock_out_' + currentEmp.id : '';
+}
+
+function getLockRemainMs(key) {
+  const at = Number(localStorage.getItem(key) || 0);
+  if (!at) return 0;
+  const remain = LOCK_MS - (Date.now() - at);
+  return remain > 0 ? remain : 0;
+}
+
+function formatRemain(ms) {
+  const totalSec = Math.ceil(ms / 1000);
+  const h = Math.floor(totalSec / 3600);
+  const m = Math.floor((totalSec % 3600) / 60);
+  const s = totalSec % 60;
+
+  if (h > 0) {
+    return h + '時間' + String(m).padStart(2, '0') + '分';
+  }
+  if (m > 0) {
+    return m + '分' + String(s).padStart(2, '0') + '秒';
+  }
+  return s + '秒';
+}
+
+function clearExpiredLocks() {
+  if (!currentEmp) return;
+
+  const inKey = getInLockKey();
+  const outKey = getOutLockKey();
+
+  if (getLockRemainMs(inKey) <= 0) localStorage.removeItem(inKey);
+  if (getLockRemainMs(outKey) <= 0) localStorage.removeItem(outKey);
+}
+
+function updateButtonLocks() {
+  if (!currentEmp) return;
+
+  clearExpiredLocks();
+
+  const btnIn = document.getElementById('btnIn');
+  const btnOut = document.getElementById('btnOut');
+  const note = document.getElementById('lockNote');
+
+  const inRemain = getLockRemainMs(getInLockKey());
+  const outRemain = getLockRemainMs(getOutLockKey());
+
+  const busy = btnIn.dataset.busy === '1' || btnOut.dataset.busy === '1';
+
+  btnIn.disabled = busy || inRemain > 0;
+  btnOut.disabled = busy || outRemain > 0;
+
+  const notes = [];
+  if (inRemain > 0) notes.push('出勤はあと ' + formatRemain(inRemain) + ' で再操作できます');
+  if (outRemain > 0) notes.push('退勤はあと ' + formatRemain(outRemain) + ' で再操作できます');
+
+  note.innerHTML = notes.join('<br>');
+}
+
+function startLockWatcher() {
+  updateButtonLocks();
+  if (lockTimer) clearInterval(lockTimer);
+  lockTimer = setInterval(updateButtonLocks, 1000);
+}
+
 // ── 打刻 ──────────────────────────────────────────────────
 async function doPunch(type) {
   if (type === 'in' && !selectedShift) {
@@ -306,12 +398,29 @@ async function doPunch(type) {
     return;
   }
 
+  updateButtonLocks();
+
+  if (type === 'in' && getLockRemainMs(getInLockKey()) > 0) {
+    document.getElementById('stampArea').innerHTML =
+      `<div class="stamp stamp-err">出勤は3時間経過後に再操作できます</div>`;
+    return;
+  }
+
+  if (type === 'out' && getLockRemainMs(getOutLockKey()) > 0) {
+    document.getElementById('stampArea').innerHTML =
+      `<div class="stamp stamp-err">退勤は3時間経過後に再操作できます</div>`;
+    return;
+  }
+
   const now = new Date();
-  const dateKey = now.getFullYear() + '-' + String(now.getMonth()+1).padStart(2,'0') + '-' + String(now.getDate()).padStart(2,'0');
+  const dateKey = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2,'0') + '-' + String(now.getDate()).padStart(2,'0');
   const time = String(now.getHours()).padStart(2,'0') + ':' + String(now.getMinutes()).padStart(2,'0');
 
-  document.getElementById('btnIn').disabled  = true;
-  document.getElementById('btnOut').disabled = true;
+  const btnIn = document.getElementById('btnIn');
+  const btnOut = document.getElementById('btnOut');
+  btnIn.dataset.busy = '1';
+  btnOut.dataset.busy = '1';
+  updateButtonLocks();
 
   try {
     const res = await gasCall({
@@ -324,29 +433,38 @@ async function doPunch(type) {
     });
 
     if (res.ok) {
+      if (type === 'in') {
+        localStorage.setItem(getInLockKey(), String(Date.now()));
+      } else {
+        localStorage.setItem(getOutLockKey(), String(Date.now()));
+      }
+
       const label = type === 'in' ? '出勤' : '退勤';
-      const cls   = type === 'in' ? 'stamp-in' : 'stamp-out';
+      const cls = type === 'in' ? 'stamp-in' : 'stamp-out';
+
       document.getElementById('stampArea').innerHTML =
         `<div class="stamp ${cls}">✓ ${time} ${label}打刻しました</div>`;
+
       await loadTodayRecord();
       await loadRecords();
     } else {
       document.getElementById('stampArea').innerHTML =
         `<div class="stamp stamp-err">エラー: ${res.error || '通信失敗'}</div>`;
     }
-  } catch(e) {
+  } catch (e) {
     document.getElementById('stampArea').innerHTML =
       `<div class="stamp stamp-err">通信エラーが発生しました</div>`;
   }
 
-  document.getElementById('btnIn').disabled  = false;
-  document.getElementById('btnOut').disabled = false;
+  btnIn.dataset.busy = '0';
+  btnOut.dataset.busy = '0';
+  updateButtonLocks();
 }
 
 // ── 今日の記録読み込み ────────────────────────────────────
 async function loadTodayRecord() {
   const now = new Date();
-  const dateKey = now.getFullYear() + '-' + String(now.getMonth()+1).padStart(2,'0') + '-' + String(now.getDate()).padStart(2,'0');
+  const dateKey = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2,'0') + '-' + String(now.getDate()).padStart(2,'0');
   const res = await gasCall({ action: 'getRecords', startDate: dateKey, endDate: dateKey });
   if (!res.ok) return;
 
@@ -355,11 +473,19 @@ async function loadTodayRecord() {
     const shiftLabel = rec.shift && SHIFT_RULES[rec.shift] ? SHIFT_RULES[rec.shift].label : '-';
     document.getElementById('todayCard').style.display = 'block';
     document.getElementById('todayShift').textContent = shiftLabel;
-    document.getElementById('todayIn').textContent    = rec.in  || '-';
-    document.getElementById('todayOut').textContent   = rec.out || '-';
+    document.getElementById('todayIn').textContent = rec.in || '-';
+    document.getElementById('todayOut').textContent = rec.out || '-';
     document.getElementById('todayTotal').textContent = rec.total || '-';
     document.getElementById('todayInner').textContent = rec.inner || '-';
     document.getElementById('todayOuter').textContent = rec.outer || '-';
+  } else {
+    document.getElementById('todayCard').style.display = 'none';
+    document.getElementById('todayShift').textContent = '-';
+    document.getElementById('todayIn').textContent = '-';
+    document.getElementById('todayOut').textContent = '-';
+    document.getElementById('todayTotal').textContent = '-';
+    document.getElementById('todayInner').textContent = '-';
+    document.getElementById('todayOuter').textContent = '-';
   }
 }
 
@@ -381,8 +507,9 @@ async function loadRecords() {
 }
 
 function getCurrentAndPrevPeriod(now) {
-  const y = now.getFullYear(), m = now.getMonth()+1, d = now.getDate();
+  const y = now.getFullYear(), m = now.getMonth() + 1, d = now.getDate();
   let curYear, curMonth, prevYear, prevMonth;
+
   if (d >= 21) {
     curMonth = m + 1 > 12 ? 1 : m + 1;
     curYear  = m + 1 > 12 ? y + 1 : y;
@@ -390,13 +517,14 @@ function getCurrentAndPrevPeriod(now) {
     curMonth = m;
     curYear  = y;
   }
+
   prevMonth = curMonth - 1 < 1 ? 12 : curMonth - 1;
   prevYear  = curMonth - 1 < 1 ? curYear - 1 : curYear;
 
-  const fmt = (y,m) => y + '-' + String(m).padStart(2,'0');
+  const fmt = (yy, mm) => yy + '-' + String(mm).padStart(2, '0');
   const curStart  = fmt(prevYear, prevMonth) + '-21';
-  const curEnd    = fmt(curYear, curMonth)   + '-20';
-  const prevStart = fmt(prevMonth-1<1?prevYear-1:prevYear, prevMonth-1<1?12:prevMonth-1) + '-21';
+  const curEnd    = fmt(curYear, curMonth) + '-20';
+  const prevStart = fmt(prevMonth - 1 < 1 ? prevYear - 1 : prevYear, prevMonth - 1 < 1 ? 12 : prevMonth - 1) + '-21';
   const prevEnd   = fmt(prevYear, prevMonth) + '-20';
 
   return [
@@ -408,21 +536,22 @@ function getCurrentAndPrevPeriod(now) {
 function buildRecordTable(label, startDate, endDate, recs) {
   const days = [];
   const sd = new Date(startDate + 'T00:00:00');
-  const ed = new Date(endDate   + 'T00:00:00');
-  for (let d = new Date(sd); d <= ed; d.setDate(d.getDate()+1)) {
+  const ed = new Date(endDate + 'T00:00:00');
+
+  for (let d = new Date(sd); d <= ed; d.setDate(d.getDate() + 1)) {
     days.push(new Date(d));
   }
 
   const DOW = ['日','月','火','水','木','金','土'];
   let totalMin = 0, innerMin = 0, outerMin = 0;
-
   let rows = '';
+
   days.forEach(d => {
-    const key = d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+    const key = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
     const r   = recs[key] || {};
     const dow = d.getDay();
     const cls = dow === 0 ? 'weekend' : dow === 6 ? 'saturday' : '';
-    const label2 = String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+    const label2 = String(d.getMonth() + 1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
     const shiftLabel = r.shift && SHIFT_RULES[r.shift] ? SHIFT_RULES[r.shift].label : '';
 
     if (r.total) totalMin += strToMin(r.total);
@@ -432,10 +561,10 @@ function buildRecordTable(label, startDate, endDate, recs) {
     rows += `<tr class="${cls}">
       <td>${label2}</td><td>${DOW[dow]}</td>
       <td>${shiftLabel}</td>
-      <td>${r.in||''}</td><td>${r.out||''}</td>
-      <td>${r.total||''}</td>
-      <td class="td-inner">${r.inner||''}</td>
-      <td class="td-outer">${r.outer||''}</td>
+      <td>${r.in || ''}</td><td>${r.out || ''}</td>
+      <td>${r.total || ''}</td>
+      <td class="td-inner">${r.inner || ''}</td>
+      <td class="td-outer">${r.outer || ''}</td>
     </tr>`;
   });
 
@@ -467,12 +596,12 @@ function strToMin(s) {
   if (!s) return 0;
   const hMatch = s.match(/(\d+)時間/);
   const mMatch = s.match(/(\d+)分/);
-  return (hMatch ? parseInt(hMatch[1]) * 60 : 0) + (mMatch ? parseInt(mMatch[1]) : 0);
+  return (hMatch ? parseInt(hMatch[1], 10) * 60 : 0) + (mMatch ? parseInt(mMatch[1], 10) : 0);
 }
 
 function minToStr(m) {
   if (m <= 0) return '0時間0分';
-  return Math.floor(m/60) + '時間' + (m%60) + '分';
+  return Math.floor(m / 60) + '時間' + (m % 60) + '分';
 }
 </script>
 </body>
