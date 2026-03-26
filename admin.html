@@ -369,7 +369,8 @@ async function doLogin() {
         id: res.id,
         password: pw,
         email: res.email || '',
-        mustChangePassword: !!res.mustChangePassword
+        mustChangePassword: !!res.mustChangePassword,
+        sessionToken: res.sessionToken || ''
       };
 
       if (res.mustChangePassword) {
@@ -588,7 +589,6 @@ async function addEmployee() {
   const id = 'e' + Date.now() + Math.random().toString(36).slice(2,6);
   employees.push({ id, last, first, no });
   const res = await gasCall({ action: 'saveEmployees', employees });
-
   if (res.ok) {
     ['empLast','empFirst','empNo'].forEach(id => document.getElementById(id).value = '');
     showMsg('empMsg','追加しました！','ok');
@@ -868,6 +868,8 @@ async function addManager() {
     mustChangePassword: true,
     resetCode: '',
     resetExpire: '',
+    sessionToken: '',
+    sessionExpires: '',
     isSuper:false
   });
 
