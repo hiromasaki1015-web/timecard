@@ -313,6 +313,7 @@ const SHIFT_RULES = {
 
 let employees = [], currentAdmin = null;
 let tsRecords = {}, mailAddrs = [], currentSettingsManagers = [];
+let sessionExpiredMessage = '';
 
 async function gasCall(payload) {
   const r = await fetch(GAS_URL, {
@@ -334,13 +335,15 @@ function isAuthErrorMessage(msg) {
   return !!msg && (msg.includes('再ログイン') || msg.includes('ログイン情報') || msg.includes('有効期限'));
 }
 
+function showLoginError(msg) {
+  document.getElementById('loginErr').textContent = msg || '';
+}
+
 function handleAuthError(res, targetId) {
-  const msg = res && res.error ? res.error : 'ログインが無効です。再ログインしてください。';
+  const msg = res && res.error ? res.error : 'セッションの有効期限が切れました。再度ログインしてください。';
   if (targetId) showMsg(targetId, msg, 'err');
-  else alert(msg);
-  if (isAuthErrorMessage(msg)) {
-    setTimeout(() => doLogout(), 300);
-  }
+  sessionExpiredMessage = 'セッションの有効期限が切れました。再度ログインしてください。';
+  setTimeout(() => doLogout(true), 300);
 }
 
 function isValidPassword(pw) {
@@ -369,6 +372,12 @@ function backToLogin() {
   document.getElementById('forgotScreen').style.display = 'none';
   document.getElementById('forgotErr1').textContent = '';
   document.getElementById('forgotErr2').textContent = '';
+  if (sessionExpiredMessage) {
+    showLoginError(sessionExpiredMessage);
+    sessionExpiredMessage = '';
+  } else {
+    showLoginError('');
+  }
 }
 
 async function doLogin() {
@@ -534,7 +543,7 @@ async function resetPasswordByCode() {
   }
 }
 
-function doLogout() {
+function doLogout(fromSessionExpired = false) {
   currentAdmin = null;
   employees = [];
   tsRecords = {};
@@ -545,7 +554,6 @@ function doLogout() {
     const el = document.getElementById(id);
     if (el) el.value = '';
   });
-  document.getElementById('loginErr').textContent = '';
   document.getElementById('forcePwErr').textContent = '';
   document.getElementById('forgotErr1').textContent = '';
   document.getElementById('forgotErr2').textContent = '';
@@ -554,6 +562,12 @@ function doLogout() {
   document.getElementById('forgotScreen').style.display = 'none';
   document.getElementById('appScreen').style.display = 'none';
   document.getElementById('superCard').style.display = '';
+  if (fromSessionExpired) {
+    showLoginError(sessionExpiredMessage || 'セッションの有効期限が切れました。再度ログインしてください。');
+    sessionExpiredMessage = '';
+  } else {
+    showLoginError('');
+  }
 }
 
 async function init() {
