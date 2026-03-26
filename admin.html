@@ -737,7 +737,6 @@ function getPeriod(year, month) {
   return { start, end };
 }
 
-
 function strToMin(s) {
   if (!s) return 0;
   const hm = s.match(/(\d+)時間/), mm = s.match(/(\d+)分/);
@@ -745,12 +744,6 @@ function strToMin(s) {
 }
 
 function minToStr(m) {
-  if (m < 0) return '';
-  if (m === 0) return '0時間0分';
-  return Math.floor(m / 60) + '時間' + (m % 60) + '分';
-}
-
-function minToStrForTotal(m) {
   if (m <= 0) return '';
   return Math.floor(m / 60) + '時間' + (m % 60) + '分';
 }
@@ -766,16 +759,6 @@ function makeDateKey(d) {
 
 function getShiftLabel(shift) {
   return shift && SHIFT_RULES[shift] ? SHIFT_RULES[shift].label : '';
-}
-
-function getPeriodDates(start, end) {
-  const dates = [];
-  const sd = new Date(start + 'T00:00:00');
-  const ed = new Date(end + 'T00:00:00');
-  for (let d = new Date(sd); d <= ed; d.setDate(d.getDate() + 1)) {
-    dates.push(new Date(d));
-  }
-  return dates;
 }
 
 function getDayAttendanceEntries(dateKey) {
@@ -797,133 +780,124 @@ function getDayAttendanceEntries(dateKey) {
   return entries;
 }
 
-function getExportEmployeesWithAttendance(start, end) {
-  const totalsMap = {};
-  employees.forEach(emp => {
-    totalsMap[emp.id] = {
-      empId: emp.id,
-      name: `${emp.last} ${emp.first}`,
-      total: 0,
-      inner: 0,
-      outer: 0,
-      hasAny: false
-    };
-  });
+function buildExportHeaderRow() {
+  return [
+    '日付', '曜日',
+    '氏名', '勤務', '出', '退', '合計', '時間内', '時間外',
+    '氏名', '勤務', '出', '退', '合計', '時間内', '時間外'
+  ];
+}
 
-  const dates = getPeriodDates(start, end);
-  dates.forEach(d => {
+function buildAttendanceExportRows(year, month) {
+  const { start, end } = getPeriod(year, month);
+  const rows = [];
+
+  const days = [];
+  const sd = new Date(start + 'T00:00:00');
+  const ed = new Date(end + 'T00:00:00');
+  for (let d = new Date(sd); d <= ed; d.setDate(d.getDate() + 1)) {
+    days.push(new Date(d));
+  }
+
+  const DOW = ['日','月','火','水','木','金','土'];
+  const employeeTotals = employees.map(emp => ({
+    empId: emp.id,
+    name: `${emp.last} ${emp.first}`,
+    total: 0,
+    inner: 0,
+    outer: 0
+  }));
+
+  const blockCount = 2;
+  const dailyEntriesMap = {};
+
+  days.forEach(d => {
     const key = makeDateKey(d);
-    employees.forEach(emp => {
+
+    const entries = getDayAttendanceEntries(key).slice(0, 2);
+    dailyEntriesMap[key] = entries;
+
+    employees.forEach((emp, idx) => {
       const r = tsRecords[emp.id] && tsRecords[emp.id][key] ? tsRecords[emp.id][key] : {};
-      if (!hasAttendanceRecord(r)) return;
-      totalsMap[emp.id].hasAny = true;
-      totalsMap[emp.id].total += strToMin(r.total || '');
-      totalsMap[emp.id].inner += strToMin(r.inner || '');
-      totalsMap[emp.id].outer += strToMin(r.outer || '');
+      if (r.total) employeeTotals[idx].total += strToMin(r.total);
+      if (r.inner) employeeTotals[idx].inner += strToMin(r.inner);
+      if (r.outer) employeeTotals[idx].outer += strToMin(r.outer);
     });
   });
 
-  return employees
-    .map(emp => totalsMap[emp.id])
-    .filter(item => item.hasAny);
-}
+  const title1 = ['東海商販勤怠管理'];
+  const title2 = [`東海商販 ${year}年${month}月分`];
+  const header = buildExportHeaderRow();
 
-function buildExportHeaderRow(blockCount) {
-  const row = ['日付', '曜日'];
-  for (let i = 1; i <= blockCount; i++) {
-    row.push(`出勤者${i === 1 ? '①' : i === 2 ? '②' : '③'.repeat(0)}`);
-    row.push('勤務', '出/時間', '退/時間', '合計', '時間内', '時間外');
-  }
-  if (blockCount >= 3) {
-    for (let i = 3; i <= blockCount; i++) {
-      const base = 2 + (i - 1) * 7;
-      row[base] = `出勤者${String.fromCharCode(9311 + i)}`;
-    }
-  }
-  return row;
-}
-
-function getCircledNumber(num) {
-  const map = {1:'①',2:'②',3:'③',4:'④',5:'⑤',6:'⑥',7:'⑦',8:'⑧',9:'⑨',10:'⑩'};
-  return map[num] || `(${num})`;
-}
-
-function buildExportHeaderRowExact(blockCount) {
-  const row = ['日付', '曜日'];
-  for (let i = 1; i <= blockCount; i++) {
-    row.push(`出勤者${getCircledNumber(i)}`, '勤務', '出/時間', '退/時間', '合計', '時間内', '時間外');
-  }
-  return row;
-}
-
-function buildAttendanceExportRowsExact(year, month) {
-  const { start, end } = getPeriod(year, month);
-  const dates = getPeriodDates(start, end);
-  const DOW = ['日','月','火','水','木','金','土'];
-
-  let maxBlocks = 1;
-  const dailyEntriesMap = {};
-
-  dates.forEach(d => {
-    const key = makeDateKey(d);
-    const entries = getDayAttendanceEntries(key);
-    dailyEntriesMap[key] = entries;
-    if (entries.length > maxBlocks) maxBlocks = entries.length;
-  });
-
-  const header = buildExportHeaderRowExact(maxBlocks);
-  const rows = [];
-
-  rows.push(['東海商販勤怠管理']);
-  rows.push([`東海商販 ${year}年${month}月分`]);
+  rows.push(title1);
+  rows.push(title2);
   rows.push(header);
 
-  dates.forEach(d => {
+  days.forEach(d => {
     const key = makeDateKey(d);
     const row = [`${d.getMonth() + 1}/${d.getDate()}`, DOW[d.getDay()]];
     const entries = dailyEntriesMap[key] || [];
 
     entries.forEach(item => {
-      row.push(item.name, item.work, item.in, item.out, item.total, item.inner, item.outer);
+      row.push(
+        item.name,
+        item.work,
+        item.in,
+        item.out,
+        item.total,
+        item.inner,
+        item.outer
+      );
     });
 
-    while (row.length < 2 + maxBlocks * 7) {
+    while (row.length < 16) {
       row.push('');
     }
+
     rows.push(row);
   });
 
+  rows.push([]);
   rows.push(header);
 
-  const totals = getExportEmployeesWithAttendance(start, end);
-  totals.forEach(item => {
-    const row = ['合計', '', item.name, '', '', '', minToStrForTotal(item.total), minToStrForTotal(item.inner), minToStrForTotal(item.outer)];
-    while (row.length < 2 + maxBlocks * 7) {
+  employeeTotals.forEach(t => {
+    const row = ['', '', t.name, '', '', '', minToStr(t.total), minToStr(t.inner), minToStr(t.outer)];
+    while (row.length < 16) {
       row.push('');
     }
     rows.push(row);
   });
 
-  return { rows, blockCount: maxBlocks };
+  return { rows, blockCount };
 }
 
-function applyExactAttendanceSheetLayout(ws, blockCount) {
-  const totalCols = 2 + blockCount * 7;
-  const lastCol = totalCols;
+function buildAttendanceSheet(ws) {
+  const totalCols = 16;
+  const lastCol = totalCols - 1;
 
-  ws.title = '勤怠';
+  ws['!merges'] = [
+    { s: { r:0, c:0 }, e: { r:0, c:lastCol } },
+    { s: { r:1, c:0 }, e: { r:1, c:lastCol } }
+  ];
 
-  ws.mergeCells(1, 1, 1, lastCol);
-  ws.mergeCells(2, 1, 2, lastCol);
-
-  const widths = [7.83, 4.83];
-  for (let i = 0; i < blockCount; i++) {
-    widths.push(8.83, 5.83, 6.83, 6.83, 8.83, 8.83, 8.83);
-  }
-
-  for (let i = 1; i <= widths.length; i++) {
-    ws.columnDimensions[XLSX.utils.encode_col ? 'A' : 'A'];
-  }
+  ws['!cols'] = [
+    { wch: 8 },
+    { wch: 6 },
+    { wch: 14 },
+    { wch: 7 },
+    { wch: 8 },
+    { wch: 8 },
+    { wch: 10 },
+    { wch: 10 },
+    { wch: 10 },
+    { wch: 14 },
+    { wch: 7 },
+    { wch: 8 },
+    { wch: 8 },
+    { wch: 10 },
+    { wch: 10 },
+    { wch: 10 }
+  ];
 }
 
 async function downloadCsv() {
@@ -931,39 +905,20 @@ async function downloadCsv() {
     const year = parseInt(document.getElementById('tsYear').value, 10);
     const month = parseInt(document.getElementById('tsMonth').value, 10);
 
-    if (!employees.length) await loadEmployees();
+    if (!employees.length) {
+      await loadEmployees();
+    }
+
     await renderTs();
 
-    const { rows, blockCount } = buildAttendanceExportRowsExact(year, month);
-    const ws = XLSX.utils.aoa_to_sheet(rows);
-
-    ws['!merges'] = [
-      { s: { r:0, c:0 }, e: { r:0, c:(2 + blockCount * 7 - 1) } },
-      { s: { r:1, c:0 }, e: { r:1, c:(2 + blockCount * 7 - 1) } }
-    ];
-
-    const cols = [
-      { wch: 7.83 },
-      { wch: 4.83 }
-    ];
-    for (let i = 0; i < blockCount; i++) {
-      cols.push(
-        { wch: 8.83 },
-        { wch: 5.83 },
-        { wch: 6.83 },
-        { wch: 6.83 },
-        { wch: 8.83 },
-        { wch: 8.83 },
-        { wch: 8.83 }
-      );
+    if (!employees.length) {
+      alert('従業員データがありません。');
+      return;
     }
-    ws['!cols'] = cols;
 
-    ws['!rows'] = rows.map((_, idx) => {
-      if (idx === 0) return { hpt: 22 };
-      if (idx === 1) return { hpt: 20 };
-      return { hpt: 16 };
-    });
+    const { rows } = buildAttendanceExportRows(year, month);
+    const ws = XLSX.utils.aoa_to_sheet(rows);
+    buildAttendanceSheet(ws);
 
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, '勤怠');
@@ -971,11 +926,9 @@ async function downloadCsv() {
     const fileName = `勤怠_${year}_${String(month).padStart(2,'0')}.xlsx`;
     XLSX.writeFile(wb, fileName);
   } catch (e) {
-    console.error(e);
     alert('Excel出力に失敗しました。もう一度お試しください。');
   }
 }
-
 
 function populateFixEmp() {
   const sel = document.getElementById('fixEmp');
