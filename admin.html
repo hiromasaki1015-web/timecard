@@ -748,8 +748,143 @@ function minToStr(m) {
   return Math.floor(m / 60) + '時間' + (m % 60) + '分';
 }
 
-function downloadCsv() {
-  alert('Excel出力は次に安全版で再統合します。');
+function buildAttendanceExportRows(year, month) {
+  const { start, end } = getPeriod(year, month);
+  const rows = [];
+  const header1 = ['日付', '曜日'];
+  const header2 = ['', ''];
+
+  employees.forEach(e => {
+    const name = `${e.last} ${e.first}`;
+    header1.push(name, '', '', '', '', '');
+    header2.push('勤務形態', '出勤', '退勤', '合計', '時間内', '時間外');
+  });
+
+  rows.push(['東海商販 勤怠一覧']);
+  rows.push([`対象月: ${year}年${month}月締め`]);
+  rows.push([`集計期間: ${start} ～ ${end}`]);
+  rows.push([]);
+  rows.push(header1);
+  rows.push(header2);
+
+  const days = [];
+  const sd = new Date(start + 'T00:00:00');
+  const ed = new Date(end + 'T00:00:00');
+  for (let d = new Date(sd); d <= ed; d.setDate(d.getDate() + 1)) {
+    days.push(new Date(d));
+  }
+
+  const DOW = ['日','月','火','水','木','金','土'];
+  const totals = employees.map(() => ({ total:0, inner:0, outer:0 }));
+
+  days.forEach(d => {
+    const key = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+    const row = [
+      String(d.getMonth() + 1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0'),
+      DOW[d.getDay()]
+    ];
+
+    employees.forEach((emp, idx) => {
+      const r = tsRecords[emp.id] && tsRecords[emp.id][key] ? tsRecords[emp.id][key] : {};
+      const shiftLabel = r.shift && SHIFT_RULES[r.shift] ? SHIFT_RULES[r.shift].label : '';
+      row.push(
+        shiftLabel || '',
+        r.in || '',
+        r.out || '',
+        r.total || '',
+        r.inner || '',
+        r.outer || ''
+      );
+
+      if (r.total) totals[idx].total += strToMin(r.total);
+      if (r.inner) totals[idx].inner += strToMin(r.inner);
+      if (r.outer) totals[idx].outer += strToMin(r.outer);
+    });
+
+    rows.push(row);
+  });
+
+  const totalRow = ['合計', ''];
+  employees.forEach((_, idx) => {
+    totalRow.push(
+      '',
+      '',
+      '',
+      minToStr(totals[idx].total),
+      minToStr(totals[idx].inner),
+      minToStr(totals[idx].outer)
+    );
+  });
+  rows.push(totalRow);
+
+  return { rows, start, end };
+}
+
+function buildAttendanceSheet(ws, employeeCount) {
+  const merges = [
+    { s: { r:0, c:0 }, e: { r:0, c:1 + employeeCount * 6 } },
+    { s: { r:1, c:0 }, e: { r:1, c:1 + employeeCount * 6 } },
+    { s: { r:2, c:0 }, e: { r:2, c:1 + employeeCount * 6 } }
+  ];
+
+  for (let i = 0; i < employeeCount; i++) {
+    const startCol = 2 + i * 6;
+    merges.push({ s: { r:4, c:startCol }, e: { r:4, c:startCol + 5 } });
+  }
+
+  ws['!merges'] = merges;
+
+  const cols = [
+    { wch: 10 },
+    { wch: 8 }
+  ];
+  for (let i = 0; i < employeeCount; i++) {
+    cols.push(
+      { wch: 10 },
+      { wch: 9 },
+      { wch: 9 },
+      { wch: 10 },
+      { wch: 10 },
+      { wch: 10 }
+    );
+  }
+  ws['!cols'] = cols;
+}
+
+async function downloadCsv() {
+  try {
+    const year = parseInt(document.getElementById('tsYear').value, 10);
+    const month = parseInt(document.getElementById('tsMonth').value, 10);
+
+    if (!employees.length) {
+      await loadEmployees();
+    }
+
+    await renderTs();
+
+    if (!employees.length) {
+      alert('従業員データがありません。');
+      return;
+    }
+
+    const hasAnyRecord = Object.keys(tsRecords || {}).length > 0;
+    if (!hasAnyRecord) {
+      const ok = confirm('この期間の打刻データが空の可能性があります。そのままExcelを作成しますか？');
+      if (!ok) return;
+    }
+
+    const { rows } = buildAttendanceExportRows(year, month);
+    const ws = XLSX.utils.aoa_to_sheet(rows);
+    buildAttendanceSheet(ws, employees.length);
+
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, '勤怠一覧');
+
+    const fileName = `東海商販_勤怠一覧_${year}年${month}月締め.xlsx`;
+    XLSX.writeFile(wb, fileName);
+  } catch (e) {
+    alert('Excel出力に失敗しました。もう一度お試しください。');
+  }
 }
 
 function populateFixEmp() {
