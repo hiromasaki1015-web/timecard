@@ -315,8 +315,11 @@ let employees = [], currentAdmin = null;
 let tsRecords = {}, mailAddrs = [], currentSettingsManagers = [];
 
 async function gasCall(payload) {
-  const url = GAS_URL + '?payload=' + encodeURIComponent(JSON.stringify(payload));
-  const r = await fetch(url);
+  const r = await fetch(GAS_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+    body: JSON.stringify(payload)
+  });
   return r.json();
 }
 
@@ -327,19 +330,25 @@ function withSession(payload = {}) {
   return payload;
 }
 
-function isValidPassword(pw) {
-  if (!pw) return false;
-  if (pw.length < 8) return false;
-  if (!/[A-Za-z]/.test(pw)) return false;
-  if (!/[0-9]/.test(pw)) return false;
-  return true;
+function isAuthErrorMessage(msg) {
+  return !!msg && (msg.includes('再ログイン') || msg.includes('ログイン情報') || msg.includes('有効期限'));
 }
 
 function handleAuthError(res, targetId) {
   const msg = res && res.error ? res.error : 'ログインが無効です。再ログインしてください。';
   if (targetId) showMsg(targetId, msg, 'err');
   else alert(msg);
-  if (msg.includes('再ログイン')) doLogout();
+  if (isAuthErrorMessage(msg)) {
+    setTimeout(() => doLogout(), 300);
+  }
+}
+
+function isValidPassword(pw) {
+  if (!pw) return false;
+  if (pw.length < 8) return false;
+  if (!/[A-Za-z]/.test(pw)) return false;
+  if (!/[0-9]/.test(pw)) return false;
+  return true;
 }
 
 function openForgotScreen() {
@@ -433,7 +442,8 @@ async function saveForcedPassword() {
 
   const res = await gasCall(withSession({ action: 'getSettings' }));
   if (!res.ok) {
-    err.textContent = '設定の読み込みに失敗しました';
+    if (isAuthErrorMessage(res.error || '')) return handleAuthError(res, 'forcePwErr');
+    err.textContent = res.error || '設定の読み込みに失敗しました';
     return;
   }
 
@@ -449,6 +459,7 @@ async function saveForcedPassword() {
 
   const saveRes = await gasCall(withSession({ action: 'saveManagers', managers }));
   if (!saveRes.ok) {
+    if (isAuthErrorMessage(saveRes.error || '')) return handleAuthError(saveRes, 'forcePwErr');
     err.textContent = saveRes.error || '保存に失敗しました';
     return;
   }
@@ -525,6 +536,11 @@ async function resetPasswordByCode() {
 
 function doLogout() {
   currentAdmin = null;
+  employees = [];
+  tsRecords = {};
+  mailAddrs = [];
+  currentSettingsManagers = [];
+
   ['loginLast','loginFirst','loginPw','forcePw1','forcePw2','fgLast','fgFirst','fgEmail','fgCode','fgPw1','fgPw2'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.value = '';
@@ -569,9 +585,13 @@ function showTab(name, el) {
 }
 
 async function loadEmployees() {
-  const res = await gasCall({ action: 'getEmployees' });
-  if (res.ok) employees = res.employees;
-  renderEmpList();
+  try {
+    const res = await gasCall({ action: 'getEmployees' });
+    if (res.ok) employees = res.employees || [];
+    renderEmpList();
+  } catch(e) {
+    document.getElementById('empList').innerHTML = '<div class="loading">従業員一覧の読み込みに失敗しました</div>';
+  }
 }
 
 function renderEmpList() {
@@ -609,7 +629,7 @@ async function addEmployee() {
     renderEmpList();
   } else {
     employees.pop();
-    if ((res.error || '').includes('再ログイン')) return handleAuthError(res, 'empMsg');
+    if (isAuthErrorMessage(res.error || '')) return handleAuthError(res, 'empMsg');
     showMsg('empMsg','エラー: ' + res.error,'err');
   }
 }
@@ -622,7 +642,7 @@ async function removeEmployee(id) {
   if (res.ok) renderEmpList();
   else {
     employees = backup;
-    if ((res.error || '').includes('再ログイン')) return handleAuthError(res, 'empMsg');
+    if (isAuthErrorMessage(res.error || '')) return handleAuthError(res, 'empMsg');
     showMsg('empMsg','削除エラー','err');
     await loadEmployees();
   }
@@ -637,8 +657,22 @@ async function renderTs() {
   document.getElementById('tsBody').innerHTML = '<tr><td class="loading" colspan="99">読み込み中...</td></tr>';
 
   if (!employees.length) await loadEmployees();
-  const res = await gasCall({ action: 'getRecords', startDate: start, endDate: end });
-  tsRecords = res.ok ? res.records : {};
+
+  let res;
+  try {
+    res = await gasCall(withSession({ action: 'getRecords', startDate: start, endDate: end }));
+  } catch (e) {
+    document.getElementById('tsBody').innerHTML = '<tr><td class="loading" colspan="99">通信エラーが発生しました</td></tr>';
+    return;
+  }
+
+  if (!res.ok) {
+    if (isAuthErrorMessage(res.error || '')) return handleAuthError(res);
+    document.getElementById('tsBody').innerHTML = '<tr><td class="loading" colspan="99">' + (res.error || '勤怠一覧の取得に失敗しました') + '</td></tr>';
+    return;
+  }
+
+  tsRecords = res.records || {};
 
   const head = document.getElementById('tsHead');
   head.innerHTML = '<tr><th>日付</th><th>曜日</th>'
@@ -701,7 +735,7 @@ function minToStr(m) {
 }
 
 function downloadCsv() {
-  alert('Excel出力は引き続き利用できます。必要なら次にこの画面へ再統合します。');
+  alert('Excel出力は次に安全版で再統合します。');
 }
 
 function populateFixEmp() {
@@ -717,8 +751,15 @@ async function loadFixRecord() {
     showMsg('fixMsg','従業員と日付を選んでください','err');
     return;
   }
-  const res = await gasCall({ action: 'getRecords', startDate: dateKey, endDate: dateKey });
-  const rec = res.ok && res.records[empId] && res.records[empId][dateKey] ? res.records[empId][dateKey] : {};
+
+  const res = await gasCall(withSession({ action: 'getRecords', startDate: dateKey, endDate: dateKey }));
+  if (!res.ok) {
+    if (isAuthErrorMessage(res.error || '')) return handleAuthError(res, 'fixMsg');
+    showMsg('fixMsg', res.error || '読み込みに失敗しました', 'err');
+    return;
+  }
+
+  const rec = res.records && res.records[empId] && res.records[empId][dateKey] ? res.records[empId][dateKey] : {};
   document.getElementById('fixShift').value = rec.shift || 'day';
   document.getElementById('fixIn').value = rec.in || '';
   document.getElementById('fixOut').value = rec.out || '';
@@ -740,7 +781,7 @@ async function saveFixRecord() {
   if (res.ok) {
     showMsg('fixMsg','保存しました！','ok');
   } else {
-    if ((res.error || '').includes('再ログイン')) return handleAuthError(res, 'fixMsg');
+    if (isAuthErrorMessage(res.error || '')) return handleAuthError(res, 'fixMsg');
     showMsg('fixMsg','エラー: ' + res.error,'err');
   }
 }
@@ -754,14 +795,17 @@ async function deleteFixRecord() {
     showMsg('fixMsg','削除しました','ok');
     document.getElementById('fixForm').style.display = 'none';
   } else {
-    if ((res.error || '').includes('再ログイン')) return handleAuthError(res, 'fixMsg');
+    if (isAuthErrorMessage(res.error || '')) return handleAuthError(res, 'fixMsg');
     showMsg('fixMsg','エラー: ' + res.error,'err');
   }
 }
 
 async function loadMailSettings() {
-  const res = await gasCall({ action: 'getSettings' });
-  if (!res.ok) return;
+  const res = await gasCall(withSession({ action: 'getSettings' }));
+  if (!res.ok) {
+    if (isAuthErrorMessage(res.error || '')) return handleAuthError(res, 'mailMsg');
+    return;
+  }
   const es = res.settings.emailSettings || {};
   mailAddrs = es.addresses || [];
   document.getElementById('mailSender').value = es.senderName || '';
@@ -807,14 +851,17 @@ async function saveMailSettings() {
   if (res.ok) {
     showMsg('mailMsg','保存しました！','ok');
   } else {
-    if ((res.error || '').includes('再ログイン')) return handleAuthError(res, 'mailMsg');
+    if (isAuthErrorMessage(res.error || '')) return handleAuthError(res, 'mailMsg');
     showMsg('mailMsg','エラー: ' + res.error,'err');
   }
 }
 
 async function loadManagers() {
-  const res = await gasCall({ action: 'getSettings' });
-  if (!res.ok) return;
+  const res = await gasCall(withSession({ action: 'getSettings' }));
+  if (!res.ok) {
+    if (isAuthErrorMessage(res.error || '')) return handleAuthError(res, 'mgrMsg');
+    return;
+  }
   currentSettingsManagers = res.settings.managers || [];
   renderMgrList();
 }
@@ -871,7 +918,7 @@ async function saveManagerEmail(i) {
     showMsg('mgrMsg','管理者メールアドレスを保存しました','ok');
     renderMgrList();
   } else {
-    if ((res.error || '').includes('再ログイン')) return handleAuthError(res, 'mgrMsg');
+    if (isAuthErrorMessage(res.error || '')) return handleAuthError(res, 'mgrMsg');
     showMsg('mgrMsg','エラー: ' + res.error,'err');
     await loadManagers();
   }
@@ -914,7 +961,7 @@ async function addManager() {
     renderMgrList();
   } else {
     currentSettingsManagers.pop();
-    if ((res.error || '').includes('再ログイン')) return handleAuthError(res, 'mgrMsg');
+    if (isAuthErrorMessage(res.error || '')) return handleAuthError(res, 'mgrMsg');
     showMsg('mgrMsg','エラー: ' + res.error,'err');
   }
 }
@@ -928,7 +975,7 @@ async function removeManager(i) {
     renderMgrList();
   } else {
     currentSettingsManagers = backup;
-    if ((res.error || '').includes('再ログイン')) return handleAuthError(res, 'mgrMsg');
+    if (isAuthErrorMessage(res.error || '')) return handleAuthError(res, 'mgrMsg');
     showMsg('mgrMsg','削除エラー','err');
     await loadManagers();
   }
@@ -973,7 +1020,7 @@ async function changeMyPassword() {
     showMsg('pwMsg','パスワードを変更しました！','ok');
     renderMgrList();
   } else {
-    if ((res.error || '').includes('再ログイン')) return handleAuthError(res, 'pwMsg');
+    if (isAuthErrorMessage(res.error || '')) return handleAuthError(res, 'pwMsg');
     showMsg('pwMsg','エラー: ' + res.error,'err');
   }
 }
