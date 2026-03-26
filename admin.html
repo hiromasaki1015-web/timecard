@@ -15,8 +15,8 @@
 body{font-family:'Hiragino Kaku Gothic ProN','Meiryo',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;}
 
 /* LOGIN */
-#loginScreen,#forcePwScreen{min-height:100vh;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,var(--navy),var(--navy2));}
-.login-box{background:var(--white);border-radius:16px;padding:44px 38px;width:380px;box-shadow:0 20px 60px rgba(0,0,0,.3);}
+#loginScreen{min-height:100vh;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,var(--navy),var(--navy2));}
+.login-box{background:var(--white);border-radius:16px;padding:44px 38px;width:360px;box-shadow:0 20px 60px rgba(0,0,0,.3);}
 .login-logo{text-align:center;margin-bottom:28px;}
 .login-logo h1{font-size:20px;color:var(--navy);font-weight:700;}
 .login-logo p{font-size:13px;color:var(--muted);margin-top:4px;}
@@ -26,7 +26,6 @@ body{font-family:'Hiragino Kaku Gothic ProN','Meiryo',sans-serif;background:var(
 .login-btn{width:100%;padding:13px;background:var(--navy);color:#fff;border:none;border-radius:8px;font-size:16px;font-weight:700;cursor:pointer;margin-top:4px;}
 .login-btn:hover{background:var(--navy2);}
 .login-err{color:var(--red);font-size:13px;text-align:center;margin-top:10px;}
-.force-note{font-size:13px;color:var(--muted);line-height:1.7;margin-bottom:14px;background:#f7f9fc;padding:12px;border-radius:10px;}
 
 /* APP */
 #appScreen{display:none;flex-direction:column;min-height:100vh;}
@@ -99,27 +98,6 @@ tr:hover td{background:#f0f4ff;}
     <input type="password" id="loginPw" placeholder="パスワード" onkeydown="if(event.key==='Enter')doLogin()">
     <button class="login-btn" onclick="doLogin()">ログイン</button>
     <div id="loginErr" class="login-err"></div>
-  </div>
-</div>
-
-<div id="forcePwScreen" style="display:none;">
-  <div class="login-box">
-    <div class="login-logo">
-      <h1>🔐 初回パスワード変更</h1>
-      <p>初期パスワードのため変更が必要です</p>
-    </div>
-    <div class="force-note">
-      新しいパスワードは次の条件が必要です。<br>
-      ・8文字以上<br>
-      ・英字を1文字以上含む<br>
-      ・数字を1文字以上含む
-    </div>
-    <label>新しいパスワード</label>
-    <input type="password" id="forcePw1" placeholder="新しいパスワード">
-    <label>新しいパスワード（確認）</label>
-    <input type="password" id="forcePw2" placeholder="確認用" onkeydown="if(event.key==='Enter')saveForcedPassword()">
-    <button class="login-btn" onclick="saveForcedPassword()">変更して続ける</button>
-    <div id="forcePwErr" class="login-err"></div>
   </div>
 </div>
 
@@ -241,7 +219,7 @@ tr:hover td{background:#f0f4ff;}
           <div><label>確認</label><input type="password" id="pwNew2"></div>
           <div style="align-self:flex-end"><button class="btn btn-primary" onclick="changeMyPassword()">変更する</button></div>
         </div>
-        <div class="help-text">新しいパスワードは 8文字以上、英字と数字を含めてください。</div>
+        <div class="help-text">この段階では、まだ強制変更と再設定コード機能は入れていません。次で追加します。</div>
         <div id="pwMsg"></div>
       </div>
 
@@ -253,7 +231,7 @@ tr:hover td{background:#f0f4ff;}
           <div><label>メールアドレス</label><input type="email" id="newMgrEmail" placeholder="manager@example.com"></div>
           <div style="align-self:flex-end"><button class="btn btn-primary" onclick="addManager()">追加（初期PW: 1234）</button></div>
         </div>
-        <div class="help-text">追加した管理者は、初期パスワード 1234 でログイン後に必ず変更が必要になります。</div>
+        <div class="help-text">追加した管理者は、次の段階で初回ログイン時にパスワード変更必須にします。</div>
         <div id="mgrMsg"></div>
 
         <h2 style="margin-top:18px;">管理者一覧</h2>
@@ -283,13 +261,6 @@ async function gasCall(payload) {
   return r.json();
 }
 
-function isValidPassword(pw) {
-  if (!pw || pw.length < 8) return false;
-  if (!/[A-Za-z]/.test(pw)) return false;
-  if (!/[0-9]/.test(pw)) return false;
-  return true;
-}
-
 async function doLogin() {
   const last = document.getElementById('loginLast').value.trim();
   const first = document.getElementById('loginFirst').value.trim();
@@ -313,14 +284,10 @@ async function doLogin() {
         email: res.email || '',
         mustChangePassword: !!res.mustChangePassword
       };
-
-      if (res.mustChangePassword) {
-        document.getElementById('loginScreen').style.display = 'none';
-        document.getElementById('forcePwScreen').style.display = 'flex';
-        return;
-      }
-
-      openAppScreen();
+      document.getElementById('loginScreen').style.display = 'none';
+      document.getElementById('appScreen').style.display = 'flex';
+      document.getElementById('adminBadge').textContent = (res.isSuper ? '⭐ ' : '') + last + ' ' + first;
+      if (!res.isSuper) document.getElementById('superCard').style.display = 'none';
       await init();
     } else {
       document.getElementById('loginErr').textContent = res.error || 'ログインに失敗しました';
@@ -330,73 +297,11 @@ async function doLogin() {
   }
 }
 
-function openAppScreen() {
-  document.getElementById('loginScreen').style.display = 'none';
-  document.getElementById('forcePwScreen').style.display = 'none';
-  document.getElementById('appScreen').style.display = 'flex';
-  document.getElementById('adminBadge').textContent = (currentAdmin.isSuper ? '⭐ ' : '') + currentAdmin.last + ' ' + currentAdmin.first;
-  if (!currentAdmin.isSuper) document.getElementById('superCard').style.display = 'none';
-}
-
-async function saveForcedPassword() {
-  const pw1 = document.getElementById('forcePw1').value;
-  const pw2 = document.getElementById('forcePw2').value;
-  const err = document.getElementById('forcePwErr');
-  err.textContent = '';
-
-  if (!pw1 || !pw2) {
-    err.textContent = '新しいパスワードを入力してください';
-    return;
-  }
-  if (pw1 !== pw2) {
-    err.textContent = '確認用パスワードが一致しません';
-    return;
-  }
-  if (!isValidPassword(pw1)) {
-    err.textContent = '8文字以上で、英字と数字を含むパスワードにしてください';
-    return;
-  }
-
-  const res = await gasCall({ action: 'getSettings' });
-  if (!res.ok) {
-    err.textContent = '設定の読み込みに失敗しました';
-    return;
-  }
-
-  const managers = res.settings.managers || [];
-  const idx = managers.findIndex(m => m.last === currentAdmin.last && m.first === currentAdmin.first);
-  if (idx < 0) {
-    err.textContent = '管理者データが見つかりません';
-    return;
-  }
-
-  managers[idx].password = pw1;
-  managers[idx].mustChangePassword = false;
-
-  const saveRes = await gasCall({ action: 'saveManagers', managers });
-  if (!saveRes.ok) {
-    err.textContent = '保存に失敗しました';
-    return;
-  }
-
-  currentAdmin.password = pw1;
-  currentAdmin.mustChangePassword = false;
-  ['forcePw1','forcePw2'].forEach(id => document.getElementById(id).value = '');
-
-  openAppScreen();
-  await init();
-}
-
 function doLogout() {
   currentAdmin = null;
-  ['loginLast','loginFirst','loginPw','forcePw1','forcePw2'].forEach(id => {
-    const el = document.getElementById(id);
-    if (el) el.value = '';
-  });
+  ['loginLast','loginFirst','loginPw'].forEach(id => document.getElementById(id).value = '');
   document.getElementById('loginErr').textContent = '';
-  document.getElementById('forcePwErr').textContent = '';
-  document.getElementById('loginScreen').style.display = 'flex';
-  document.getElementById('forcePwScreen').style.display = 'none';
+  document.getElementById('loginScreen').style.display = '';
   document.getElementById('appScreen').style.display = 'none';
   document.getElementById('superCard').style.display = '';
 }
@@ -563,7 +468,7 @@ function downloadCsv() {
   const month = parseInt(document.getElementById('tsMonth').value, 10);
   const { start, end } = getPeriod(year, month);
   const fileName = '勤怠_' + year + '_' + String(month).padStart(2,'0') + '.xlsx';
-  const titleStr = '東海商販勤怠管理';
+  const titleStr    = '東海商販勤怠管理';
   const subtitleStr = '東海商販 ' + year + '年' + month + '月分';
 
   const days = [];
@@ -886,7 +791,6 @@ function renderMgrList() {
           ${m.isSuper ? '<span style="background:#fff3cd;color:#856404;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:700;">スーパー管理者</span>' : ''}
         </div>
         <div style="font-size:12px;color:var(--muted);margin-top:6px;">メール: ${m.email || '未登録'}</div>
-        <div style="font-size:12px;color:${m.mustChangePassword ? '#d63031' : '#1b7f3b'};margin-top:6px;">${m.mustChangePassword ? '初回パスワード変更が必要' : 'パスワード変更済み'}</div>
         <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;">
           <div style="min-width:240px;flex:1;">
             <label style="margin-bottom:4px;">メールアドレス</label>
@@ -991,10 +895,6 @@ async function changeMyPassword() {
     showMsg('pwMsg','新しいパスワードが一致しません','err');
     return;
   }
-  if (!isValidPassword(nw)) {
-    showMsg('pwMsg','8文字以上で、英字と数字を含むパスワードにしてください','err');
-    return;
-  }
   if (old !== currentAdmin.password) {
     showMsg('pwMsg','現在のパスワードが正しくありません','err');
     return;
@@ -1015,7 +915,6 @@ async function changeMyPassword() {
     currentAdmin.mustChangePassword = false;
     ['pwOld','pwNew','pwNew2'].forEach(id => document.getElementById(id).value = '');
     showMsg('pwMsg','パスワードを変更しました！','ok');
-    renderMgrList();
   } else {
     showMsg('pwMsg','エラー: ' + res.error,'err');
   }
