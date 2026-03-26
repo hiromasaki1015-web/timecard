@@ -14,8 +14,8 @@
 *{box-sizing:border-box;margin:0;padding:0;}
 body{font-family:'Hiragino Kaku Gothic ProN','Meiryo',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;}
 
-#loginScreen,#forcePwScreen{min-height:100vh;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,var(--navy),var(--navy2));}
-.login-box{background:var(--white);border-radius:16px;padding:44px 38px;width:380px;box-shadow:0 20px 60px rgba(0,0,0,.3);}
+#loginScreen,#forcePwScreen,#forgotScreen{min-height:100vh;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,var(--navy),var(--navy2));}
+.login-box{background:var(--white);border-radius:16px;padding:44px 38px;width:390px;box-shadow:0 20px 60px rgba(0,0,0,.3);}
 .login-logo{text-align:center;margin-bottom:28px;}
 .login-logo h1{font-size:20px;color:var(--navy);font-weight:700;}
 .login-logo p{font-size:13px;color:var(--muted);margin-top:4px;}
@@ -24,8 +24,11 @@ body{font-family:'Hiragino Kaku Gothic ProN','Meiryo',sans-serif;background:var(
 .login-box input:focus{border-color:var(--navy);}
 .login-btn{width:100%;padding:13px;background:var(--navy);color:#fff;border:none;border-radius:8px;font-size:16px;font-weight:700;cursor:pointer;margin-top:4px;}
 .login-btn:hover{background:var(--navy2);}
+.login-sub-btn{width:100%;padding:11px;background:#eef2f8;color:var(--navy);border:none;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer;margin-top:10px;}
+.login-sub-btn:hover{background:#e5ebf5;}
 .login-err{color:var(--red);font-size:13px;text-align:center;margin-top:10px;line-height:1.6;}
 .force-note{font-size:13px;color:var(--muted);line-height:1.7;margin-bottom:14px;background:#f7f9fc;padding:12px;border-radius:10px;}
+.help-small{font-size:12px;color:var(--muted);line-height:1.6;margin-top:8px;}
 
 #appScreen{display:none;flex-direction:column;min-height:100vh;}
 header{background:var(--navy);color:#fff;padding:0 20px;height:54px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100;}
@@ -93,6 +96,7 @@ tr:hover td{background:#f0f4ff;}
     <label>パスワード</label>
     <input type="password" id="loginPw" placeholder="パスワード" onkeydown="if(event.key==='Enter')doLogin()">
     <button class="login-btn" onclick="doLogin()">ログイン</button>
+    <button class="login-sub-btn" onclick="openForgotScreen()">パスワードを忘れた方</button>
     <div id="loginErr" class="login-err"></div>
   </div>
 </div>
@@ -115,6 +119,44 @@ tr:hover td{background:#f0f4ff;}
     <input type="password" id="forcePw2" placeholder="確認用" onkeydown="if(event.key==='Enter')saveForcedPassword()">
     <button class="login-btn" onclick="saveForcedPassword()">変更して続ける</button>
     <div id="forcePwErr" class="login-err"></div>
+  </div>
+</div>
+
+<div id="forgotScreen" style="display:none;">
+  <div class="login-box">
+    <div class="login-logo">
+      <h1>✉️ パスワード再設定</h1>
+      <p>登録メールアドレスに6桁コードを送信します</p>
+    </div>
+
+    <div id="forgotStep1">
+      <label>姓（名字）</label>
+      <input type="text" id="fgLast" placeholder="例：山田">
+      <label>名（名前）</label>
+      <input type="text" id="fgFirst" placeholder="例：太郎">
+      <label>登録メールアドレス</label>
+      <input type="email" id="fgEmail" placeholder="manager@example.com">
+      <button class="login-btn" onclick="sendResetCode()">再設定コードを送信</button>
+      <button class="login-sub-btn" onclick="backToLogin()">ログイン画面へ戻る</button>
+      <div id="forgotErr1" class="login-err"></div>
+    </div>
+
+    <div id="forgotStep2" style="display:none;">
+      <div class="force-note">
+        登録メールアドレスへ6桁コードを送信しました。<br>
+        コードの有効期限は10分です。
+      </div>
+      <label>6桁コード</label>
+      <input type="text" id="fgCode" placeholder="123456">
+      <label>新しいパスワード</label>
+      <input type="password" id="fgPw1" placeholder="新しいパスワード">
+      <label>新しいパスワード（確認）</label>
+      <input type="password" id="fgPw2" placeholder="確認用" onkeydown="if(event.key==='Enter')resetPasswordByCode()">
+      <button class="login-btn" onclick="resetPasswordByCode()">新しいパスワードに変更</button>
+      <button class="login-sub-btn" onclick="backToLogin()">ログイン画面へ戻る</button>
+      <div class="help-small">新しいパスワードは8文字以上、英字と数字を含めてください。</div>
+      <div id="forgotErr2" class="login-err"></div>
+    </div>
   </div>
 </div>
 
@@ -286,6 +328,26 @@ function isValidPassword(pw) {
   return true;
 }
 
+function openForgotScreen() {
+  document.getElementById('loginScreen').style.display = 'none';
+  document.getElementById('forcePwScreen').style.display = 'none';
+  document.getElementById('appScreen').style.display = 'none';
+  document.getElementById('forgotScreen').style.display = 'flex';
+  document.getElementById('forgotStep1').style.display = '';
+  document.getElementById('forgotStep2').style.display = 'none';
+  document.getElementById('forgotErr1').textContent = '';
+  document.getElementById('forgotErr2').textContent = '';
+}
+
+function backToLogin() {
+  document.getElementById('loginScreen').style.display = 'flex';
+  document.getElementById('forcePwScreen').style.display = 'none';
+  document.getElementById('appScreen').style.display = 'none';
+  document.getElementById('forgotScreen').style.display = 'none';
+  document.getElementById('forgotErr1').textContent = '';
+  document.getElementById('forgotErr2').textContent = '';
+}
+
 async function doLogin() {
   const last = document.getElementById('loginLast').value.trim();
   const first = document.getElementById('loginFirst').value.trim();
@@ -329,6 +391,7 @@ async function doLogin() {
 function openAppScreen() {
   document.getElementById('loginScreen').style.display = 'none';
   document.getElementById('forcePwScreen').style.display = 'none';
+  document.getElementById('forgotScreen').style.display = 'none';
   document.getElementById('appScreen').style.display = 'flex';
   document.getElementById('adminBadge').textContent = (currentAdmin.isSuper ? '⭐ ' : '') + currentAdmin.last + ' ' + currentAdmin.first;
   if (!currentAdmin.isSuper) document.getElementById('superCard').style.display = 'none';
@@ -371,7 +434,7 @@ async function saveForcedPassword() {
 
   const saveRes = await gasCall({ action: 'saveManagers', managers });
   if (!saveRes.ok) {
-    err.textContent = '保存に失敗しました';
+    err.textContent = saveRes.error || '保存に失敗しました';
     return;
   }
 
@@ -383,16 +446,81 @@ async function saveForcedPassword() {
   await init();
 }
 
+async function sendResetCode() {
+  const last = document.getElementById('fgLast').value.trim();
+  const first = document.getElementById('fgFirst').value.trim();
+  const email = document.getElementById('fgEmail').value.trim();
+  const err = document.getElementById('forgotErr1');
+  err.textContent = '';
+
+  if (!last || !first || !email) {
+    err.textContent = '姓・名・登録メールアドレスを入力してください';
+    return;
+  }
+
+  const res = await gasCall({ action: 'sendResetCode', last, first, email });
+  if (res.ok) {
+    document.getElementById('forgotStep1').style.display = 'none';
+    document.getElementById('forgotStep2').style.display = '';
+  } else {
+    err.textContent = res.error || '再設定コード送信に失敗しました';
+  }
+}
+
+async function resetPasswordByCode() {
+  const last = document.getElementById('fgLast').value.trim();
+  const first = document.getElementById('fgFirst').value.trim();
+  const email = document.getElementById('fgEmail').value.trim();
+  const code = document.getElementById('fgCode').value.trim();
+  const pw1 = document.getElementById('fgPw1').value;
+  const pw2 = document.getElementById('fgPw2').value;
+  const err = document.getElementById('forgotErr2');
+  err.textContent = '';
+
+  if (!code || !pw1 || !pw2) {
+    err.textContent = 'コードと新しいパスワードを入力してください';
+    return;
+  }
+  if (pw1 !== pw2) {
+    err.textContent = '確認用パスワードが一致しません';
+    return;
+  }
+  if (!isValidPassword(pw1)) {
+    err.textContent = '8文字以上で、英字と数字を含むパスワードにしてください';
+    return;
+  }
+
+  const res = await gasCall({
+    action: 'resetPasswordByCode',
+    last,
+    first,
+    email,
+    code,
+    newPassword: pw1
+  });
+
+  if (res.ok) {
+    alert('新しいパスワードに変更しました。ログイン画面へ戻ります。');
+    ['fgCode','fgPw1','fgPw2'].forEach(id => document.getElementById(id).value = '');
+    backToLogin();
+  } else {
+    err.textContent = res.error || 'パスワード再設定に失敗しました';
+  }
+}
+
 function doLogout() {
   currentAdmin = null;
-  ['loginLast','loginFirst','loginPw','forcePw1','forcePw2'].forEach(id => {
+  ['loginLast','loginFirst','loginPw','forcePw1','forcePw2','fgLast','fgFirst','fgEmail','fgCode','fgPw1','fgPw2'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.value = '';
   });
   document.getElementById('loginErr').textContent = '';
   document.getElementById('forcePwErr').textContent = '';
+  document.getElementById('forgotErr1').textContent = '';
+  document.getElementById('forgotErr2').textContent = '';
   document.getElementById('loginScreen').style.display = 'flex';
   document.getElementById('forcePwScreen').style.display = 'none';
+  document.getElementById('forgotScreen').style.display = 'none';
   document.getElementById('appScreen').style.display = 'none';
   document.getElementById('superCard').style.display = '';
 }
@@ -555,7 +683,7 @@ function minToStr(m) {
 }
 
 function downloadCsv() {
-  alert('Excel出力機能はそのまま使えます。必要なら次に安全対策版へ統合します。');
+  alert('Excel出力は引き続き利用できます。必要なら次にこの画面へ再統合します。');
 }
 
 function populateFixEmp() {
