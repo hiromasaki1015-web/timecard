@@ -748,24 +748,49 @@ function minToStr(m) {
   return Math.floor(m / 60) + '時間' + (m % 60) + '分';
 }
 
+function hasAttendanceRecord(r) {
+  if (!r) return false;
+  return !!(r.in || r.out || r.total || r.inner || r.outer || r.shift);
+}
+
+function makeDateKey(d) {
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+}
+
+function getShiftLabel(shift) {
+  return shift && SHIFT_RULES[shift] ? SHIFT_RULES[shift].label : '';
+}
+
+function getDayAttendanceEntries(dateKey) {
+  const entries = [];
+  employees.forEach(emp => {
+    const r = tsRecords[emp.id] && tsRecords[emp.id][dateKey] ? tsRecords[emp.id][dateKey] : {};
+    if (!hasAttendanceRecord(r)) return;
+    entries.push({
+      empId: emp.id,
+      name: `${emp.last} ${emp.first}`,
+      work: getShiftLabel(r.shift),
+      in: r.in || '',
+      out: r.out || '',
+      total: r.total || '',
+      inner: r.inner || '',
+      outer: r.outer || ''
+    });
+  });
+  return entries;
+}
+
+function buildExportHeaderRow(blockCount) {
+  const row = ['日付', '曜日'];
+  for (let i = 0; i < blockCount; i++) {
+    row.push('氏名', '勤務', '出', '退', '合計', '時間内', '時間外');
+  }
+  return row;
+}
+
 function buildAttendanceExportRows(year, month) {
   const { start, end } = getPeriod(year, month);
   const rows = [];
-  const header1 = ['日付', '曜日'];
-  const header2 = ['', ''];
-
-  employees.forEach(e => {
-    const name = `${e.last} ${e.first}`;
-    header1.push(name, '', '', '', '', '');
-    header2.push('勤務形態', '出勤', '退勤', '合計', '時間内', '時間外');
-  });
-
-  rows.push(['東海商販 勤怠一覧']);
-  rows.push([`対象月: ${year}年${month}月締め`]);
-  rows.push([`集計期間: ${start} ～ ${end}`]);
-  rows.push([]);
-  rows.push(header1);
-  rows.push(header2);
 
   const days = [];
   const sd = new Date(start + 'T00:00:00');
@@ -775,79 +800,103 @@ function buildAttendanceExportRows(year, month) {
   }
 
   const DOW = ['日','月','火','水','木','金','土'];
-  const totals = employees.map(() => ({ total:0, inner:0, outer:0 }));
+  const employeeTotals = employees.map(emp => ({
+    empId: emp.id,
+    name: `${emp.last} ${emp.first}`,
+    total: 0,
+    inner: 0,
+    outer: 0
+  }));
+
+  let maxBlocks = 1;
+  const dailyEntriesMap = {};
 
   days.forEach(d => {
-    const key = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
-    const row = [
-      String(d.getMonth() + 1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0'),
-      DOW[d.getDay()]
-    ];
+    const key = makeDateKey(d);
+    const entries = getDayAttendanceEntries(key);
+    dailyEntriesMap[key] = entries;
+    if (entries.length > maxBlocks) maxBlocks = entries.length;
 
     employees.forEach((emp, idx) => {
       const r = tsRecords[emp.id] && tsRecords[emp.id][key] ? tsRecords[emp.id][key] : {};
-      const shiftLabel = r.shift && SHIFT_RULES[r.shift] ? SHIFT_RULES[r.shift].label : '';
-      row.push(
-        shiftLabel || '',
-        r.in || '',
-        r.out || '',
-        r.total || '',
-        r.inner || '',
-        r.outer || ''
-      );
-
-      if (r.total) totals[idx].total += strToMin(r.total);
-      if (r.inner) totals[idx].inner += strToMin(r.inner);
-      if (r.outer) totals[idx].outer += strToMin(r.outer);
+      if (r.total) employeeTotals[idx].total += strToMin(r.total);
+      if (r.inner) employeeTotals[idx].inner += strToMin(r.inner);
+      if (r.outer) employeeTotals[idx].outer += strToMin(r.outer);
     });
+  });
+
+  const title1 = ['東海商販勤怠管理'];
+  const title2 = [`東海商販 ${year}年${month}月分`];
+  const header = buildExportHeaderRow(maxBlocks);
+
+  rows.push(title1);
+  rows.push(title2);
+  rows.push(header);
+
+  days.forEach(d => {
+    const key = makeDateKey(d);
+    const row = [`${d.getMonth() + 1}/${d.getDate()}`, DOW[d.getDay()]];
+    const entries = dailyEntriesMap[key] || [];
+
+    entries.forEach(item => {
+      row.push(
+        item.name,
+        item.work,
+        item.in,
+        item.out,
+        item.total,
+        item.inner,
+        item.outer
+      );
+    });
+
+    while (row.length < 2 + maxBlocks * 7) {
+      row.push('');
+    }
 
     rows.push(row);
   });
 
-  const totalRow = ['合計', ''];
-  employees.forEach((_, idx) => {
-    totalRow.push(
-      '',
-      '',
-      '',
-      minToStr(totals[idx].total),
-      minToStr(totals[idx].inner),
-      minToStr(totals[idx].outer)
-    );
-  });
-  rows.push(totalRow);
+  rows.push([]);
+  rows.push(header);
 
-  return { rows, start, end };
+  employeeTotals.forEach(t => {
+    const row = ['', '', t.name, '', '', '', minToStr(t.total), minToStr(t.inner), minToStr(t.outer)];
+    while (row.length < 2 + maxBlocks * 7) {
+      row.push('');
+    }
+    rows.push(row);
+  });
+
+  return { rows, blockCount: maxBlocks };
 }
 
-function buildAttendanceSheet(ws, employeeCount) {
-  const merges = [
-    { s: { r:0, c:0 }, e: { r:0, c:1 + employeeCount * 6 } },
-    { s: { r:1, c:0 }, e: { r:1, c:1 + employeeCount * 6 } },
-    { s: { r:2, c:0 }, e: { r:2, c:1 + employeeCount * 6 } }
+function buildAttendanceSheet(ws, blockCount) {
+  const totalCols = 2 + blockCount * 7;
+  const lastCol = totalCols - 1;
+
+  ws['!merges'] = [
+    { s: { r:0, c:0 }, e: { r:0, c:lastCol } },
+    { s: { r:1, c:0 }, e: { r:1, c:lastCol } }
   ];
-
-  for (let i = 0; i < employeeCount; i++) {
-    const startCol = 2 + i * 6;
-    merges.push({ s: { r:4, c:startCol }, e: { r:4, c:startCol + 5 } });
-  }
-
-  ws['!merges'] = merges;
 
   const cols = [
-    { wch: 10 },
-    { wch: 8 }
+    { wch: 8 },
+    { wch: 6 }
   ];
-  for (let i = 0; i < employeeCount; i++) {
+
+  for (let i = 0; i < blockCount; i++) {
     cols.push(
-      { wch: 10 },
-      { wch: 9 },
-      { wch: 9 },
+      { wch: 14 },
+      { wch: 7 },
+      { wch: 8 },
+      { wch: 8 },
       { wch: 10 },
       { wch: 10 },
       { wch: 10 }
     );
   }
+
   ws['!cols'] = cols;
 }
 
@@ -867,20 +916,14 @@ async function downloadCsv() {
       return;
     }
 
-    const hasAnyRecord = Object.keys(tsRecords || {}).length > 0;
-    if (!hasAnyRecord) {
-      const ok = confirm('この期間の打刻データが空の可能性があります。そのままExcelを作成しますか？');
-      if (!ok) return;
-    }
-
-    const { rows } = buildAttendanceExportRows(year, month);
+    const { rows, blockCount } = buildAttendanceExportRows(year, month);
     const ws = XLSX.utils.aoa_to_sheet(rows);
-    buildAttendanceSheet(ws, employees.length);
+    buildAttendanceSheet(ws, blockCount);
 
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, '勤怠一覧');
+    XLSX.utils.book_append_sheet(wb, ws, '勤怠');
 
-    const fileName = `東海商販_勤怠一覧_${year}年${month}月締め.xlsx`;
+    const fileName = `勤怠_${year}_${String(month).padStart(2,'0')}.xlsx`;
     XLSX.writeFile(wb, fileName);
   } catch (e) {
     alert('Excel出力に失敗しました。もう一度お試しください。');
