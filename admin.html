@@ -807,7 +807,6 @@ function buildAttendanceExportRows(year, month) {
     outer: 0
   }));
 
-  const blockCount = 2;
   const dailyEntriesMap = {};
 
   days.forEach(d => {
@@ -867,7 +866,7 @@ function buildAttendanceExportRows(year, month) {
     rows.push(row);
   });
 
-  return { rows, blockCount };
+  return rows;
 }
 
 function buildAttendanceSheet(ws) {
@@ -915,7 +914,7 @@ async function downloadCsv() {
       return;
     }
 
-    const { rows } = buildAttendanceExportRows(year, month);
+    const rows = buildAttendanceExportRows(year, month);
     const ws = XLSX.utils.aoa_to_sheet(rows);
     buildAttendanceSheet(ws);
 
@@ -1199,6 +1198,8 @@ async function changeMyPassword() {
     showMsg('pwMsg','現在のパスワードが正しくありません','err');
     return;
   }
+
+  currentAdmin.sessionToken = authCheck.sessionToken || currentAdmin.sessionToken;
 
   const idx = currentSettingsManagers.findIndex(m => m.last === currentAdmin.last && m.first === currentAdmin.first);
   if (idx < 0) {
