@@ -399,11 +399,11 @@ async function doLogin() {
         first,
         isSuper: res.isSuper,
         id: res.id,
-        password: pw,
         email: res.email || '',
         mustChangePassword: !!res.mustChangePassword,
         sessionToken: res.sessionToken || ''
       };
+      document.getElementById('loginPw').value = '';
 
       if (res.mustChangePassword) {
         document.getElementById('loginScreen').style.display = 'none';
@@ -473,7 +473,6 @@ async function saveForcedPassword() {
     return;
   }
 
-  currentAdmin.password = pw1;
   currentAdmin.mustChangePassword = false;
   ['forcePw1','forcePw2'].forEach(id => document.getElementById(id).value = '');
 
@@ -1136,7 +1135,6 @@ async function addManager() {
     id:'mgr_' + Date.now(),
     last,
     first,
-    password:'1234',
     email: email,
     mustChangePassword: true,
     resetCode: '',
@@ -1190,7 +1188,14 @@ async function changeMyPassword() {
     showMsg('pwMsg','8文字以上で、英字と数字を含むパスワードにしてください','err');
     return;
   }
-  if (old !== currentAdmin.password) {
+
+  const authCheck = await gasCall({
+    action: 'loginAdmin',
+    last: currentAdmin.last,
+    first: currentAdmin.first,
+    password: old
+  });
+  if (!authCheck.ok) {
     showMsg('pwMsg','現在のパスワードが正しくありません','err');
     return;
   }
@@ -1206,10 +1211,10 @@ async function changeMyPassword() {
 
   const res = await gasCall(withSession({ action: 'saveManagers', managers: currentSettingsManagers }));
   if (res.ok) {
-    currentAdmin.password = nw;
     currentAdmin.mustChangePassword = false;
     ['pwOld','pwNew','pwNew2'].forEach(id => document.getElementById(id).value = '');
     showMsg('pwMsg','パスワードを変更しました！','ok');
+    await loadManagers();
     renderMgrList();
   } else {
     if (isAuthErrorMessage(res.error || '')) return handleAuthError(res, 'pwMsg');
