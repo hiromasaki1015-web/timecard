@@ -108,6 +108,11 @@
       color:var(--navy);
     }
 
+    .btn-qr{
+      background:var(--accent);
+      color:var(--navy);
+    }
+
     .punch-top{
       text-align:center;
       margin-bottom:18px;
@@ -131,6 +136,51 @@
       font-weight:700;
       color:var(--navy);
       letter-spacing:2px;
+    }
+
+    .qr-card{
+      margin-top:18px;
+      background:#fff8e8;
+      border:2px solid #f2d28b;
+      border-radius:14px;
+      padding:16px;
+    }
+
+    .qr-title{
+      font-size:15px;
+      font-weight:700;
+      color:var(--navy);
+      margin-bottom:8px;
+    }
+
+    .qr-status{
+      font-size:14px;
+      line-height:1.7;
+      color:var(--muted);
+      min-height:22px;
+    }
+
+    .qr-status.ok{
+      color:#166534;
+      font-weight:700;
+    }
+
+    .qr-status.err{
+      color:#b91c1c;
+      font-weight:700;
+    }
+
+    #qrReaderWrap{
+      display:none;
+      margin-top:12px;
+      border-radius:12px;
+      overflow:hidden;
+      border:1px solid var(--border);
+      background:#000;
+    }
+
+    #qrReader{
+      width:100%;
     }
 
     .shift-area{
@@ -288,6 +338,16 @@
         <div id="punchClock" class="punch-clock">--:--:--</div>
       </div>
 
+      <div class="qr-card">
+        <div class="qr-title">職場QRコード認証</div>
+        <div id="qrStatus" class="qr-status">打刻する前に、職場のQRコードを読み取ってください</div>
+        <button id="btnStartQr" class="main-btn btn-qr" onclick="startQrScan()">QRコードを読み取る</button>
+        <button id="btnStopQr" class="main-btn btn-secondary" onclick="stopQrScan()" style="display:none;">読み取りを閉じる</button>
+        <div id="qrReaderWrap">
+          <div id="qrReader"></div>
+        </div>
+      </div>
+
       <div class="shift-area">
         <div class="section-label">勤務形態を選択</div>
         <div class="shift-grid">
@@ -309,6 +369,8 @@
       <div class="note-card">
         <h3>ご案内</h3>
         <p>
+          ・打刻前に、職場の固定QRコード読み取りが必要です。<br>
+          ・QR認証後、5分間だけ出勤・退勤ボタンを押せます。<br>
           ・打刻後は同じ種類の再打刻が3時間制限されます。<br>
           ・社員画面では記録一覧を表示しない安全版にしています。<br>
           ・記録確認や修正は管理画面で行ってください。
@@ -319,15 +381,22 @@
     </div>
   </div>
 
+  <script src="https://unpkg.com/html5-qrcode"></script>
   <script>
     const GAS_URL = 'https://script.google.com/macros/s/AKfycbwZg6bsDIl427TEZ8v7ECY1ZfeADqyJRKZYZgiac3M-5cywdRpZr0qGjuTksgpNjtlD/exec';
     const LOCK_MS = 3 * 60 * 60 * 1000;
+    const QR_AUTH_MS = 5 * 60 * 1000;
+    const FIXED_QR_TEXT = 'TOKAI-SHOUHAN-ATTEND-QR-2026';
 
     let employees = [];
     let currentEmp = null;
     let selectedShift = 'day';
     let clockTimer = null;
     let lockTimer = null;
+    let qrTimer = null;
+    let qrScanner = null;
+    let qrScanning = false;
+    let qrAuthedUntil = 0;
 
     async function gasCall(payload) {
       const r = await fetch(GAS_URL, {
@@ -395,14 +464,19 @@
 
     function openPunch(emp) {
       currentEmp = emp;
+      qrAuthedUntil = 0;
+
       document.getElementById('empScreen').style.display = 'none';
       document.getElementById('punchScreen').style.display = 'flex';
       document.getElementById('punchName').textContent = emp.last + ' ' + emp.first;
       document.getElementById('stampArea').innerHTML = '';
       document.getElementById('lockNote').textContent = '';
+      setQrStatus('打刻する前に、職場のQRコードを読み取ってください', '');
+      updateQrButtons();
 
       startClock();
       startLockWatcher();
+      startQrWatcher();
       updateButtonLocks();
     }
 
@@ -412,6 +486,10 @@
 
       if (clockTimer) clearInterval(clockTimer);
       if (lockTimer) clearInterval(lockTimer);
+      if (qrTimer) clearInterval(qrTimer);
+
+      stopQrScan(true);
+      qrAuthedUntil = 0;
 
       selectedShift = 'day';
       document.querySelectorAll('.shift-btn').forEach((b, idx) => {
@@ -421,6 +499,8 @@
 
       document.getElementById('stampArea').innerHTML = '';
       document.getElementById('lockNote').textContent = '';
+      setQrStatus('打刻する前に、職場のQRコードを読み取ってください', '');
+      updateQrButtons();
     }
 
     function startClock() {
@@ -462,6 +542,11 @@
       return remain > 0 ? remain : 0;
     }
 
+    function getQrRemainMs() {
+      const remain = qrAuthedUntil - Date.now();
+      return remain > 0 ? remain : 0;
+    }
+
     function formatRemain(ms) {
       const totalSec = Math.ceil(ms / 1000);
       const h = Math.floor(totalSec / 3600);
@@ -473,38 +558,152 @@
       return s + '秒';
     }
 
+    function setQrStatus(message, type) {
+      const el = document.getElementById('qrStatus');
+      el.textContent = message;
+      el.className = 'qr-status';
+      if (type === 'ok') el.classList.add('ok');
+      if (type === 'err') el.classList.add('err');
+    }
+
+    function updateQrButtons() {
+      const startBtn = document.getElementById('btnStartQr');
+      const stopBtn = document.getElementById('btnStopQr');
+      const wrap = document.getElementById('qrReaderWrap');
+
+      if (qrScanning) {
+        startBtn.style.display = 'none';
+        stopBtn.style.display = '';
+        wrap.style.display = 'block';
+      } else {
+        startBtn.style.display = '';
+        stopBtn.style.display = 'none';
+        wrap.style.display = 'none';
+      }
+    }
+
+    function startQrWatcher() {
+      updateQrStatusByTime();
+      if (qrTimer) clearInterval(qrTimer);
+      qrTimer = setInterval(() => {
+        updateQrStatusByTime();
+        updateButtonLocks();
+      }, 1000);
+    }
+
+    function updateQrStatusByTime() {
+      const remain = getQrRemainMs();
+      if (remain > 0) {
+        setQrStatus('QR認証済みです。あと ' + formatRemain(remain) + ' 有効です', 'ok');
+      } else if (!qrScanning) {
+        setQrStatus('打刻する前に、職場のQRコードを読み取ってください', '');
+      }
+    }
+
+    async function startQrScan() {
+      if (qrScanning) return;
+
+      if (typeof Html5Qrcode === 'undefined') {
+        setQrStatus('QR読み取りライブラリの読み込みに失敗しました', 'err');
+        return;
+      }
+
+      try {
+        qrScanner = new Html5Qrcode('qrReader');
+        qrScanning = true;
+        updateQrButtons();
+        setQrStatus('カメラを起動しています。職場のQRコードをかざしてください', '');
+
+        await qrScanner.start(
+          { facingMode: 'environment' },
+          { fps: 10, qrbox: { width: 220, height: 220 } },
+          onQrReadSuccess,
+          () => {}
+        );
+      } catch (e) {
+        qrScanning = false;
+        updateQrButtons();
+        setQrStatus('カメラを起動できませんでした。カメラ許可をご確認ください', 'err');
+      }
+    }
+
+    async function stopQrScan(silent = false) {
+      if (!qrScanner || !qrScanning) {
+        qrScanning = false;
+        updateQrButtons();
+        return;
+      }
+
+      try {
+        await qrScanner.stop();
+      } catch (e) {
+      }
+
+      try {
+        await qrScanner.clear();
+      } catch (e) {
+      }
+
+      qrScanner = null;
+      qrScanning = false;
+      updateQrButtons();
+
+      if (!silent && getQrRemainMs() <= 0) {
+        setQrStatus('打刻する前に、職場のQRコードを読み取ってください', '');
+      }
+    }
+
+    async function onQrReadSuccess(decodedText) {
+      const value = String(decodedText || '').trim();
+
+      if (value !== FIXED_QR_TEXT) {
+        setQrStatus('このQRコードは使用できません。職場のQRコードを読み取ってください', 'err');
+        return;
+      }
+
+      qrAuthedUntil = Date.now() + QR_AUTH_MS;
+      setQrStatus('QR認証に成功しました。5分間、打刻できます', 'ok');
+      await stopQrScan(true);
+      updateButtonLocks();
+    }
+
     function updateButtonLocks() {
       const btnIn = document.getElementById('btnIn');
       const btnOut = document.getElementById('btnOut');
 
       const inRemain = getLockRemainMs(getInLockKey());
       const outRemain = getLockRemainMs(getOutLockKey());
+      const qrRemain = getQrRemainMs();
 
       const busyIn = btnIn.dataset.busy === '1';
       const busyOut = btnOut.dataset.busy === '1';
+      const qrLocked = qrRemain <= 0;
 
-      btnIn.disabled = busyIn || inRemain > 0;
-      btnOut.disabled = busyOut || outRemain > 0;
+      btnIn.disabled = busyIn || qrLocked || inRemain > 0;
+      btnOut.disabled = busyOut || qrLocked || outRemain > 0;
 
-      if (inRemain > 0) {
+      if (qrLocked) {
+        document.getElementById('lockNote').textContent = '職場のQRコードを読み取ると、出勤・退勤ボタンが押せます';
+      } else if (inRemain > 0) {
         document.getElementById('lockNote').textContent = '出勤はあと ' + formatRemain(inRemain) + ' で再操作できます';
       } else if (outRemain > 0) {
         document.getElementById('lockNote').textContent = '退勤はあと ' + formatRemain(outRemain) + ' で再操作できます';
       } else {
-        document.getElementById('lockNote').textContent = '';
+        document.getElementById('lockNote').textContent = 'QR認証中です。打刻できます';
       }
-    }
-
-    function startLockWatcher() {
-      updateButtonLocks();
-      if (lockTimer) clearInterval(lockTimer);
-      lockTimer = setInterval(updateButtonLocks, 1000);
     }
 
     async function doPunch(type) {
       if (!currentEmp) {
         document.getElementById('stampArea').innerHTML =
           '<div class="stamp stamp-err">名前を選び直してください</div>';
+        return;
+      }
+
+      if (getQrRemainMs() <= 0) {
+        document.getElementById('stampArea').innerHTML =
+          '<div class="stamp stamp-err">先に職場のQRコードを読み取ってください</div>';
+        updateButtonLocks();
         return;
       }
 
@@ -552,6 +751,9 @@
           } else {
             localStorage.setItem(getOutLockKey(), String(Date.now()));
           }
+
+          qrAuthedUntil = 0;
+          updateQrStatusByTime();
 
           const label = type === 'in' ? '出勤' : '退勤';
           const cls = type === 'in' ? 'stamp-in' : 'stamp-out';
